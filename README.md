@@ -6,7 +6,7 @@ NexusTerm is a modern, cross-platform serial and network debugging assistant bui
 
 The application is particularly useful for debugging devices like FPGAs, microcontrollers, and IoT gadgets, with a special feature for automatically rendering received image and video streams.
 
-![请在此处替换为您的应用截图 (Replace with your application screenshot)](https://raw.githubusercontent.com/qt/qt-material/master/qt-material.png)
+![](https://pub-a7510641c4c0427886fce394cb093861.r2.dev/image-20250923174205769.png)
 
 ## ✨ Features
 

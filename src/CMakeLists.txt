@@ -21,8 +21,11 @@ add_executable(FpgaAssist
     TcpManager.h
     UdpManager.cpp
     UdpManager.h
-    TcpServerManager.cpp # <-- ADDED
-    TcpServerManager.h   # <-- ADDED
+    TcpServerManager.cpp
+    TcpServerManager.h  
+    WelcomeWindow.cpp   
+    WelcomeWindow.h     
+    WelcomeWindow.ui
 )
 
 # Link the target program to the required Qt modules
