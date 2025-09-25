@@ -306,6 +306,48 @@
           </property>
           <layout class="QVBoxLayout" name="verticalLayout">
            <item>
+            <layout class="QHBoxLayout" name="horizontalLayout_receiveMode">
+             <item>
+              <widget class="QLabel" name="label_receiveMode">
+               <property name="text">
+                <string>接收模式:</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QRadioButton" name="autoDisplayRadio">
+               <property name="text">
+                <string>自动</string>
+               </property>
+               <property name="checked">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QRadioButton" name="textDisplayRadio">
+               <property name="text">
+                <string>文本</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QRadioButton" name="imageDisplayRadio">
+               <property name="text">
+                <string>图像</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QRadioButton" name="videoDisplayRadio">
+               <property name="text">
+                <string>视频</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item>
             <layout class="QHBoxLayout" name="horizontalLayout">
              <item>
               <widget class="QRadioButton" name="asciiDisplayRadio">

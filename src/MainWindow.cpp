@@ -13,7 +13,7 @@
 #include <QVideoWidget>
 #include <QSlider>
 #include <QLabel>
-#include <QListWidget> // 确保包含
+#include <QListWidget>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -28,7 +28,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_serialManager = new SerialManager(this);
     m_tcpManager = new TcpManager(this);
     m_udpManager = new UdpManager(this);
-    m_tcpServerManager = new TcpServerManager(this); // 新增
+    m_tcpServerManager = new TcpServerManager(this);
 
     m_mediaPlayer = new QMediaPlayer(this);
     m_mediaPlayer->setVideoOutput(ui->videoDisplayWidget);
@@ -53,7 +53,6 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_udpManager, &UdpManager::portUnbound, this, &MainWindow::onUdpUnbound);
     connect(m_udpManager, &UdpManager::dataReceived, this, &MainWindow::onUdpDataReceived);
 
-    // 新增: 连接TCP服务器管理器的信号
     connect(m_tcpServerManager, &TcpServerManager::clientConnected, this, &MainWindow::onClientConnected);
     connect(m_tcpServerManager, &TcpServerManager::clientDisconnected, this, &MainWindow::onClientDisconnected);
     connect(m_tcpServerManager, &TcpServerManager::dataReceived, this, &MainWindow::onServerDataReceived);
@@ -70,13 +69,16 @@ MainWindow::MainWindow(QWidget *parent)
     m_udpReassemblyTimer->setSingleShot(true);
     connect(m_udpReassemblyTimer, &QTimer::timeout, this, &MainWindow::onUdpReassemblyTimeout);
 
+    m_tcpReassemblyTimer = new QTimer(this);
+    m_tcpReassemblyTimer->setInterval(200);
+    m_tcpReassemblyTimer->setSingleShot(true);
+    connect(m_tcpReassemblyTimer, &QTimer::timeout, this, &MainWindow::onTcpReassemblyTimeout);
+
     connect(m_mediaPlayer, &QMediaPlayer::positionChanged, this, &MainWindow::updatePosition);
     connect(m_mediaPlayer, &QMediaPlayer::durationChanged, this, &MainWindow::updateDuration);
     connect(m_mediaPlayer, &QMediaPlayer::playbackStateChanged, this, &MainWindow::updatePlaybackState);
     
-    // 新增: 连接UI控件的信号
     connect(ui->clientListWidget, &QListWidget::currentItemChanged, this, &MainWindow::updateControlsState);
-
 
     ui->displayStackedWidget->setCurrentIndex(0);
 }
@@ -94,6 +96,12 @@ void MainWindow::initUI() {
     ui->parityComboBox->addItems({"None", "Even", "Odd"});
     ui->dataBitsComboBox->addItems({"8", "7", "6", "5"});
     ui->stopBitsComboBox->addItems({"1", "1.5", "2"});
+
+    QButtonGroup *receiveModeGroup = new QButtonGroup(this);
+    receiveModeGroup->addButton(ui->autoDisplayRadio);
+    receiveModeGroup->addButton(ui->textDisplayRadio);
+    receiveModeGroup->addButton(ui->imageDisplayRadio);
+    receiveModeGroup->addButton(ui->videoDisplayRadio);
 
     QButtonGroup *displayGroup = new QButtonGroup(this);
     displayGroup->addButton(ui->asciiDisplayRadio);
@@ -119,6 +127,69 @@ void MainWindow::initUI() {
 
     connect(displayGroup, &QButtonGroup::buttonClicked, this, &MainWindow::updateLogDisplay);
 }
+
+void MainWindow::handleIncomingData(const QByteArray &data) {
+    // 首先，根据选择的模式来决定如何处理数据
+    if (ui->autoDisplayRadio->isChecked()) {
+        // --- 自动模式 ---
+        m_mediaPlayer->stop();
+        QPixmap pixmap;
+        bool isImage = pixmap.loadFromData(data);
+        if (isImage) {
+            // 是图像 -> 按图像处理
+            ui->imageDisplayLabel->setPixmap(pixmap.scaled(ui->imageDisplayLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            ui->displayStackedWidget->setCurrentIndex(1);
+            m_logBuffer.append({QDateTime::currentDateTime(), LogEntry::In, data, "Image Data"});
+        } else {
+            // 不是图像 -> 按文本处理
+            ui->imageDisplayLabel->clear();
+            ui->displayStackedWidget->setCurrentIndex(0);
+            m_logBuffer.append({QDateTime::currentDateTime(), LogEntry::In, data, ""});
+        }
+    } else if (ui->textDisplayRadio->isChecked()) {
+        // --- 文本模式 ---
+        m_mediaPlayer->stop();
+        ui->imageDisplayLabel->clear();
+        ui->displayStackedWidget->setCurrentIndex(0);
+        m_logBuffer.append({QDateTime::currentDateTime(), LogEntry::In, data, ""});
+    } else if (ui->imageDisplayRadio->isChecked()) {
+        // --- 图像模式 ---
+        m_mediaPlayer->stop();
+        QPixmap pixmap;
+        pixmap.loadFromData(data);
+        ui->imageDisplayLabel->setPixmap(pixmap.scaled(ui->imageDisplayLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+        ui->displayStackedWidget->setCurrentIndex(1);
+        m_logBuffer.append({QDateTime::currentDateTime(), LogEntry::In, data, "Image Data"});
+    } else if (ui->videoDisplayRadio->isChecked()) {
+        // --- 视频模式 ---
+        m_mediaPlayer->stop();
+        ui->imageDisplayLabel->clear();
+        if (m_tempMediaFile) {
+            m_tempMediaFile->remove();
+            delete m_tempMediaFile;
+            m_tempMediaFile = nullptr;
+        }
+        m_tempMediaFile = new QTemporaryFile(this);
+        if (m_tempMediaFile->open()) {
+            m_tempMediaFile->write(data);
+            m_tempMediaFile->flush();
+            QString tempFilePath = m_tempMediaFile->fileName();
+            m_tempMediaFile->close();
+            ui->displayStackedWidget->setCurrentIndex(0);
+            m_mediaPlayer->setSource(QUrl::fromLocalFile(tempFilePath));
+            m_mediaPlayer->play();
+            m_logBuffer.append({QDateTime::currentDateTime(), LogEntry::In, data, tempFilePath});
+        } else {
+            qDebug() << "Failed to create temporary file for video.";
+            delete m_tempMediaFile;
+            m_tempMediaFile = nullptr;
+        }
+    }
+    
+    // 任何模式处理完后，都更新日志显示
+    updateLogDisplay();
+}
+
 void MainWindow::updatePortList() {
     if (ui->communicationModeComboBox->currentIndex() == 0) {
         QList<QString> availablePortNames;
@@ -169,7 +240,6 @@ void MainWindow::updateControlsState() {
     ui->communicationModeComboBox->setEnabled(!isConnected);
     ui->settingsStackedWidget->setEnabled(!isConnected);
 
-    // 在服务器模式下，只有当有客户端连接并被选中时，发送按钮才可用
     if (modeIndex == 3) {
         bool clientSelected = ui->clientListWidget->currentItem() != nullptr;
         ui->sendButton->setEnabled(clientSelected);
@@ -180,14 +250,13 @@ void MainWindow::updateControlsState() {
         ui->sendButton->setEnabled(isConnected);
         ui->sendMediaButton->setEnabled(isConnected);
         ui->cyclicSendCheckBox->setEnabled(isConnected);
-        ui->disconnectClientButton->setEnabled(false); // 其他模式下禁用
+        ui->disconnectClientButton->setEnabled(false);
     }
 
     if (!isConnected && m_autoSendTimer->isActive()) {
         ui->cyclicSendCheckBox->setChecked(false);
     }
 }
-
 
 void MainWindow::updateByteCounters() {
     m_rxBytesLabel->setText(QString("RX: %1").arg(m_rxBytes));
@@ -264,7 +333,7 @@ void MainWindow::on_sendButton_clicked() {
                 m_tcpServerManager->writeData(dataToSend, clientInfo);
             } else {
                 QMessageBox::warning(this, "警告", "请在列表中选择一个客户端进行发送。");
-                return; // 阻止后续操作
+                return;
             }
             break;
     }
@@ -443,47 +512,6 @@ void MainWindow::updateLogDisplay() {
     ui->sentDataDisplayEdit->moveCursor(QTextCursor::End);
 }
 
-void MainWindow::handleIncomingData(const QByteArray &data) {
-    m_mediaPlayer->stop();
-    QPixmap pixmap;
-    bool isImage = pixmap.loadFromData(data);
-    if (isImage) {
-        if (m_tempMediaFile) {
-            m_tempMediaFile->remove();
-            delete m_tempMediaFile;
-            m_tempMediaFile = nullptr;
-        }
-        ui->imageDisplayLabel->setPixmap(pixmap.scaled(
-            ui->imageDisplayLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
-        ui->displayStackedWidget->setCurrentIndex(1);
-        m_logBuffer.append({QDateTime::currentDateTime(), LogEntry::In, data, "Image Data"});
-        updateLogDisplay();
-    } else {
-        ui->imageDisplayLabel->clear();
-        if (m_tempMediaFile) {
-            m_tempMediaFile->remove();
-            delete m_tempMediaFile;
-            m_tempMediaFile = nullptr;
-        }
-        m_tempMediaFile = new QTemporaryFile(this);
-        if (!m_tempMediaFile->open()) {
-            qDebug() << "Failed to create temporary file.";
-            delete m_tempMediaFile;
-            m_tempMediaFile = nullptr;
-            return;
-        }
-        m_tempMediaFile->write(data);
-        m_tempMediaFile->flush();
-        QString tempFilePath = m_tempMediaFile->fileName();
-        m_tempMediaFile->close();
-        ui->displayStackedWidget->setCurrentIndex(0);
-        m_mediaPlayer->setSource(QUrl::fromLocalFile(tempFilePath));
-        m_mediaPlayer->play();
-        m_logBuffer.append({QDateTime::currentDateTime(), LogEntry::In, data, tempFilePath});
-        updateLogDisplay();
-    }
-}
-
 // === 通信管理器槽函数实现 ===
 void MainWindow::onSerialDataReceived(const QByteArray &data) {
     handleIncomingData(data);
@@ -511,14 +539,13 @@ void MainWindow::onTcpDisconnected() {
     updateControlsState();
     m_statusLabel->setText("TCP 已断开");
     if (!m_tcpBuffer.isEmpty()) {
-        handleIncomingData(m_tcpBuffer);
-        m_rxBytes += m_tcpBuffer.size();
-        updateByteCounters();
-        m_tcpBuffer.clear();
+        m_tcpReassemblyTimer->stop();
+        onTcpReassemblyTimeout();
     }
 }
 void MainWindow::onTcpDataReceived(const QByteArray &data) {
     m_tcpBuffer.append(data);
+    m_tcpReassemblyTimer->start();
 }
 void MainWindow::onTcpError(const QString &errorText) {
     if (!errorText.isEmpty()) QMessageBox::critical(this, "TCP错误", errorText);
@@ -552,7 +579,15 @@ void MainWindow::onUdpReassemblyTimeout() {
     m_lastUdpSenderPort = 0;
 }
 
-// === 新增TCP服务器槽函数实现 ===
+void MainWindow::onTcpReassemblyTimeout() {
+    if (m_tcpBuffer.isEmpty()) return;
+    handleIncomingData(m_tcpBuffer);
+    m_rxBytes += m_tcpBuffer.size();
+    updateByteCounters();
+    m_tcpBuffer.clear();
+}
+
+// === TCP服务器槽函数实现 ===
 void MainWindow::onClientConnected(const QString &clientInfo) {
     ui->clientListWidget->addItem(clientInfo);
     updateControlsState();
@@ -572,7 +607,6 @@ void MainWindow::onServerDataReceived(const QByteArray &data, const QString &cli
     m_rxBytes += data.size();
     updateByteCounters();
     
-    // 作为调试助手，我们仅记录收到的原始数据，而不尝试将其作为媒体文件打开
     m_logBuffer.append({QDateTime::currentDateTime(), LogEntry::In, data, clientInfo});
     updateLogDisplay();
 }

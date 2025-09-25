@@ -7,7 +7,7 @@
 #include "SerialManager.h"
 #include "TcpManager.h"
 #include "UdpManager.h"
-#include "TcpServerManager.h" // 新增
+#include "TcpServerManager.h"
 
 #include <QMediaPlayer>
 #include <QTemporaryFile>
@@ -47,7 +47,7 @@ private slots:
     void on_clearDisplayButton_clicked();
     void on_playPauseButton_clicked();
     void on_progressSlider_valueChanged(int value);
-    void on_disconnectClientButton_clicked(); // 新增
+    void on_disconnectClientButton_clicked();
 
     // 通信管理器槽函数
     void onSerialDataReceived(const QByteArray &data);
@@ -61,7 +61,7 @@ private slots:
     void onUdpBound();
     void onUdpUnbound();
     void onUdpDataReceived(const QByteArray &data, const QString &senderHost, quint16 senderPort);
-    // 新增: TCP 服务器槽函数
+    // TCP 服务器槽函数
     void onClientConnected(const QString &clientInfo);
     void onClientDisconnected(const QString &clientInfo);
     void onServerDataReceived(const QByteArray &data, const QString &clientInfo);
@@ -70,6 +70,7 @@ private slots:
     // 其他槽函数
     void updateLogDisplay();
     void onUdpReassemblyTimeout();
+    void onTcpReassemblyTimeout();
 
     // 媒体播放器状态更新槽函数
     void updatePlaybackState(QMediaPlayer::PlaybackState state);
@@ -92,7 +93,7 @@ private:
     SerialManager *m_serialManager;
     TcpManager *m_tcpManager;
     UdpManager *m_udpManager;
-    TcpServerManager *m_tcpServerManager; // 新增
+    TcpServerManager *m_tcpServerManager;
     
     // 媒体播放器
     QMediaPlayer *m_mediaPlayer;
@@ -115,6 +116,7 @@ private:
     QByteArray m_tcpBuffer;
     QByteArray m_udpBuffer;
     QTimer* m_udpReassemblyTimer;
+    QTimer* m_tcpReassemblyTimer;
     QString m_lastUdpSenderHost;
     quint16 m_lastUdpSenderPort;
 };
