@@ -710,58 +710,86 @@ void MainWindow::processVideoFrameBuffer() {
 
     while (true)
     {
+        // 如果视频流已停止，则退出处理循环
+        if (!m_isUdpStreaming) {
+            return;
+        }
+
         int headerPos = m_videoFrameBuffer.indexOf(frameHeader);
 
         if (headerPos == -1) {
+            // 缓冲区中没有帧头，退出
             return;
         }
 
         if (headerPos > 0) {
+            // 丢弃帧头前的无效数据
             qDebug() << "[Video Sync] Discarding" << headerPos << "bytes of invalid data before header.";
             m_videoFrameBuffer.remove(0, headerPos);
         }
 
+        // 检查元数据（宽度和高度）是否足够
         if (m_videoFrameBuffer.size() < 8) {
-            return;
+            return; // 数据不足，等待更多数据
         }
         
+        // 解析宽度和高度
         const uchar* meta = reinterpret_cast<const uchar*>(m_videoFrameBuffer.constData() + 4);
         quint16 width  = (meta[0] << 8) | meta[1];
         quint16 height = (meta[2] << 8) | meta[3];
 
+        // 对解析出的分辨率进行有效性检查
         if (width == 0 || height == 0 || width > 4096 || height > 4096) {
             qDebug() << "[Video ERROR] Parsed invalid resolution:" << width << "x" << height << ". Discarding frame header.";
-            m_videoFrameBuffer.remove(0, 4);
+            m_videoFrameBuffer.remove(0, 4); // 丢弃无效帧头，继续寻找下一个
             continue;
         }
         
-        int imageDataSize = width * height * 2;
-        int totalFrameSize = 8 + imageDataSize;
+        int imageDataSize = width * height * 2; // RGB565, 每个像素2字节
+        int totalFrameSize = 8 + imageDataSize; // 帧头(4) + 元数据(4) + 图像数据
         
+        // 检查是否已接收到完整的帧数据
         if (m_videoFrameBuffer.size() < totalFrameSize) {
-            return;
+            return; // 帧数据不完整，等待更多数据
         }
 
         qDebug() << "[Video Render] Full frame received. Rendering image with resolution" << width << "x" << height;
-        const uchar* imageDataPtr = reinterpret_cast<const uchar*>(m_videoFrameBuffer.constData() + 8);
         
-        // 使用正确的RGB565格式创建QImage
-        QImage image(imageDataPtr, width, height, QImage::Format_RGB16);
+        // ======================= FIX START =======================
+        // 1. 提取图像数据部分
+        QByteArray imageDataBytes = m_videoFrameBuffer.mid(8, imageDataSize);
         
-        // 创建一个深拷贝以确保数据安全
-        image = image.copy(); 
+        // 2. 修正字节序：交换每2个字节（16位像素）的位置 (大端 -> 小端)
+        // 这是解决彩色噪点问题的关键
+        for(int i = 0; i < imageDataSize; i += 2) {
+            std::swap(imageDataBytes[i], imageDataBytes[i+1]);
+        }
+
+        // 3. 使用修正后的数据创建QImage
+        const uchar* correctedImageDataPtr = reinterpret_cast<const uchar*>(imageDataBytes.constData());
+        QImage image(correctedImageDataPtr, width, height, QImage::Format_RGB16);
+        // ======================= FIX END =========================
 
         if (!image.isNull()) {
-            // 【关键修改】直接从QImage创建QPixmap，不再调用 .rgbSwapped()
             QPixmap pixmap = QPixmap::fromImage(image); 
             
             ui->imageDisplayLabel->setPixmap(pixmap.scaled(ui->imageDisplayLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
             ui->displayStackedWidget->setCurrentIndex(1);
             ui->resolutionLabel->setText(QString("%1 x %2").arg(width).arg(height));
+
+            // ======================= TEST IMPLEMENTATION =======================
+            // 按照您的要求，在成功显示第一帧后暂停视频流，以进行静态检查
+            m_isUdpStreaming = false; 
+            ui->playPauseButton->setText("播放");
+            m_statusLabel->setText("已暂停 (单帧测试模式)");
+            qDebug() << "[Video Test] Paused after rendering the first valid frame.";
+            // ===================================================================
+
         } else {
             qDebug() << "[Video ERROR] QImage failed to load from data.";
         }
 
+        // 移除已处理的数据帧
         m_videoFrameBuffer.remove(0, totalFrameSize);
     }
 }
