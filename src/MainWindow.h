@@ -87,6 +87,7 @@ private:
     void updateControlsState();
     void updateByteCounters();
     void handleIncomingData(const QByteArray &data);
+    void processVideoFrameBuffer(); // 新增函数，用于处理视频帧数据
 
 private:
     Ui::MainWindow *ui;
@@ -124,6 +125,10 @@ private:
     quint16 m_lastUdpSenderPort;
     QByteArray m_fileDataToSend;
     qint64 m_fileSendOffset;
+
+    // UDP视频流相关
+    bool m_isUdpStreaming;
+    QByteArray m_videoFrameBuffer;
 };
 
 #endif // MAINWINDOW_H

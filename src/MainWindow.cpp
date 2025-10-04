@@ -14,6 +14,7 @@
 #include <QSlider>
 #include <QLabel>
 #include <QListWidget>
+#include <QDataStream>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -24,6 +25,7 @@ MainWindow::MainWindow(QWidget *parent)
     , m_txBytes(0)
     , m_lastUdpSenderPort(0)
     , m_fileSendOffset(0)
+    , m_isUdpStreaming(false) // 初始化流状态
 {
     ui->setupUi(this);
     m_serialManager = new SerialManager(this);
@@ -393,6 +395,12 @@ void MainWindow::on_communicationModeComboBox_currentIndexChanged(int index) {
     } else {
         m_portScanTimer->stop();
     }
+    // 如果从UDP模式切换走，则停止视频流
+    if (index != 2 && m_isUdpStreaming) {
+        m_isUdpStreaming = false;
+        ui->playPauseButton->setText("播放");
+        m_videoFrameBuffer.clear();
+    }
     updateControlsState();
 }
 
@@ -502,10 +510,38 @@ void MainWindow::on_clearDisplayButton_clicked()
 
 void MainWindow::on_playPauseButton_clicked()
 {
-    if (m_mediaPlayer->playbackState() == QMediaPlayer::PlayingState) {
-        m_mediaPlayer->pause();
+    // 检查是否为UDP模式
+    if (ui->communicationModeComboBox->currentIndex() == 2 && m_udpManager->isBound()) {
+        if (!m_isUdpStreaming) {
+            // 开始视频流
+            m_isUdpStreaming = true;
+            m_videoFrameBuffer.clear(); // 清空旧的缓冲
+
+            // 发送1字节的启动命令 0x01
+            QByteArray startCommand;
+            startCommand.append(0x01);
+            m_udpManager->writeData(startCommand, ui->udpTargetHostLineEdit->text(), ui->udpTargetPortSpinBox->value());
+
+            ui->playPauseButton->setText("停止");
+            m_statusLabel->setText("UDP视频流接收中...");
+        } else {
+            // 停止视频流
+            m_isUdpStreaming = false;
+            // 可选：发送停止命令，如果协议需要
+            // QByteArray stopCommand;
+            // stopCommand.append(0x00);
+            // m_udpManager->writeData(stopCommand, ui->udpTargetHostLineEdit->text(), ui->udpTargetPortSpinBox->value());
+            
+            ui->playPauseButton->setText("播放");
+             m_statusLabel->setText(QString("UDP已绑定本地端口: %1").arg(ui->udpBindPortSpinBox->value()));
+        }
     } else {
-        m_mediaPlayer->play();
+        // 对于非UDP模式或UDP未绑定的情况，执行原来的媒体播放逻辑
+        if (m_mediaPlayer->playbackState() == QMediaPlayer::PlayingState) {
+            m_mediaPlayer->pause();
+        } else {
+            m_mediaPlayer->play();
+        }
     }
 }
 
@@ -521,7 +557,10 @@ void MainWindow::updatePlaybackState(QMediaPlayer::PlaybackState state)
     if (state == QMediaPlayer::PlayingState) {
         ui->playPauseButton->setText("暂停");
     } else {
-        ui->playPauseButton->setText("播放");
+        // 只有在非UDP流模式下才将按钮设置为“播放”
+        if (!m_isUdpStreaming || ui->communicationModeComboBox->currentIndex() != 2) {
+             ui->playPauseButton->setText("播放");
+        }
     }
 }
 
@@ -618,10 +657,25 @@ void MainWindow::onUdpBound() {
     m_statusLabel->setText(QString("UDP已绑定本地端口: %1").arg(ui->udpBindPortSpinBox->value()));
 }
 void MainWindow::onUdpUnbound() {
+    // 如果在解绑时正在进行视频流，则停止它
+    if (m_isUdpStreaming) {
+        m_isUdpStreaming = false;
+        ui->playPauseButton->setText("播放");
+        m_videoFrameBuffer.clear();
+    }
     updateControlsState();
     m_statusLabel->setText("UDP 已解绑");
 }
+
 void MainWindow::onUdpDataReceived(const QByteArray &data, const QString &senderHost, quint16 senderPort) {
+    // 如果是视频流模式，则进入专门的处理函数
+    if (m_isUdpStreaming) {
+        m_videoFrameBuffer.append(data);
+        processVideoFrameBuffer();
+        return; // 不再执行下面的旧逻辑
+    }
+
+    // --- 旧的通用UDP数据处理逻辑 ---
     if (m_udpBuffer.isEmpty()) {
         m_lastUdpSenderHost = senderHost;
         m_lastUdpSenderPort = senderPort;
@@ -631,6 +685,50 @@ void MainWindow::onUdpDataReceived(const QByteArray &data, const QString &sender
         m_udpReassemblyTimer->start();
     }
 }
+
+void MainWindow::processVideoFrameBuffer() {
+    // 持续处理，直到缓冲区中没有足够的数据构成一个完整的帧头
+    while (m_videoFrameBuffer.size() >= 8) {
+        // 检查帧头标识
+        if (m_videoFrameBuffer.startsWith("OGC NB")) {
+            // 解析后4字节的数据长度
+            QDataStream stream(m_videoFrameBuffer.mid(4, 4));
+            quint32 imageDataSize;
+            stream >> imageDataSize;
+
+            // 检查整个帧的数据是否已完全接收
+            if (m_videoFrameBuffer.size() >= (8 + imageDataSize)) {
+                // 提取图像数据
+                QByteArray imageData = m_videoFrameBuffer.mid(8, imageDataSize);
+                
+                // 更新UI显示图像
+                QPixmap pixmap;
+                if (pixmap.loadFromData(imageData)) {
+                    ui->imageDisplayLabel->setPixmap(pixmap.scaled(ui->imageDisplayLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+                    ui->displayStackedWidget->setCurrentIndex(1); // 切换到图像显示页
+                }
+
+                // 从缓冲区中移除已处理的帧
+                m_videoFrameBuffer.remove(0, 8 + imageDataSize);
+
+                // 更新字节计数
+                m_rxBytes += (8 + imageDataSize);
+                updateByteCounters();
+
+            } else {
+                // 数据不完整，跳出循环等待更多数据
+                break;
+            }
+        } else {
+            // 帧头不匹配，数据可能出错或不同步
+            // 策略：丢弃第一个字节，然后继续寻找有效的帧头
+            m_videoFrameBuffer.remove(0, 1);
+            qDebug() << "UDP video stream sync error. Searching for next frame header.";
+        }
+    }
+}
+
+
 void MainWindow::onUdpReassemblyTimeout() {
     if (m_udpBuffer.isEmpty()) return;
     handleIncomingData(m_udpBuffer);
