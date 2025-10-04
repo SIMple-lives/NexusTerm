@@ -741,7 +741,6 @@ void MainWindow::processVideoFrameBuffer() {
         }
 
         // 6. 根据宽高计算完整的帧大小
-        // [修复] 将每像素3字节(RGB888)修改为2字节(RGB565)
         int imageDataSize = width * height * 2; // RGB565 format is 2 bytes per pixel
         int totalFrameSize = 8 + imageDataSize; // 元数据(8字节) + 图像数据
 
@@ -752,20 +751,22 @@ void MainWindow::processVideoFrameBuffer() {
 
         // 8. 提取图像数据并创建图像
         QByteArray imageData = m_videoFrameBuffer.mid(8, imageDataSize);
-        // [修复] 将图像格式从 Format_RGB888 修改为 Format_RGB16 (用于RGB565)
         QImage image(reinterpret_cast<const uchar*>(imageData.constData()),
                      width,
                      height,
                      QImage::Format_RGB16);
 
-        // 9. 更新UI显示
-        if (!image.isNull()) {
-            QPixmap pixmap = QPixmap::fromImage(image);
+        // [修复] 创建一个新QImage，其字节序与原图相反
+        QImage swappedImage = image.rgbSwapped();
+
+        // 9. 使用字节序交换后的图像更新UI显示
+        if (!swappedImage.isNull()) {
+            QPixmap pixmap = QPixmap::fromImage(swappedImage);
             ui->imageDisplayLabel->setPixmap(pixmap.scaled(ui->imageDisplayLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
             ui->displayStackedWidget->setCurrentIndex(1);
             ui->resolutionLabel->setText(QString("%1 x %2").arg(width).arg(height));
         } else {
-            qDebug() << "Failed to create QImage from raw data.";
+            qDebug() << "Failed to create or swap QImage from raw data.";
         }
 
         // 10. 从缓冲区移除已经处理完的帧
