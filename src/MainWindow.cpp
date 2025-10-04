@@ -703,77 +703,49 @@ void MainWindow::onUdpDataReceived(const QByteArray &data, const QString &sender
 // ##########################################################################
 
 void MainWindow::processVideoFrameBuffer() {
-    const char headerBytes[] = {'\x4F', '\x47', '\x43', '\x20'};
-    const QByteArray frameHeader(headerBytes, 4);
-    
-    // 使用扫描位置（scanPos）来避免在循环中低效地删除数据
+    static const QByteArray frameHeader("\x4F\x47\x43\x20", 4); // 'O', 'G', 'C', ' '
     int scanPos = 0;
 
     while (true) {
-        // 从当前扫描位置开始，查找下一个帧头
         int headerPos = m_videoFrameBuffer.indexOf(frameHeader, scanPos);
+        if (headerPos == -1)
+            break;
 
-        // 如果在剩余的缓冲区中找不到帧头，则退出循环
-        if (headerPos == -1) {
-            break; 
-        }
+        if (m_videoFrameBuffer.size() < headerPos + 8)
+            break;
 
-        // 检查元数据（帧头+宽高）是否接收完整
-        if (m_videoFrameBuffer.size() < headerPos + 8) {
-            break; // 数据不足，等待下次处理
-        }
+        const uchar* meta = reinterpret_cast<const uchar*>(m_videoFrameBuffer.constData() + headerPos + 4);
+        quint16 width  = (meta[0] << 8) | meta[1];
+        quint16 height = (meta[2] << 8) | meta[3];
 
-        // 解析宽度和高度
-        // 使用.constData() + headerPos来直接访问数据，避免创建临时QByteArray
-        QDataStream stream(QByteArray::fromRawData(m_videoFrameBuffer.constData() + headerPos + 4, 4));
-        stream.setByteOrder(QDataStream::BigEndian);
-        quint16 width, height;
-        stream >> width >> height;
-
-        // 实施严格的分辨率校验，以过滤伪帧头
         if (width != 640 || height != 480) {
-            // 这是伪帧头，将扫描位置移动到帧头之后，继续搜索
             scanPos = headerPos + 4;
-            continue; 
+            continue;
         }
 
-        // 根据宽高计算完整的帧大小
-        int imageDataSize = width * height * 2; // RGB565 format is 2 bytes per pixel
-        int totalFrameSize = 8 + imageDataSize; 
+        int imageDataSize = width * height * 2;
+        int totalFrameSize = 8 + imageDataSize;
+        if (m_videoFrameBuffer.size() < headerPos + totalFrameSize)
+            break;
 
-        // 检查缓冲区数据是否足以构成一个完整的帧
-        if (m_videoFrameBuffer.size() < headerPos + totalFrameSize) {
-            break; // 当前数据不足一帧，等待更多数据
-        }
-
-        // 提取图像数据并创建图像
         const uchar* imageDataPtr = reinterpret_cast<const uchar*>(m_videoFrameBuffer.constData() + headerPos + 8);
-        
-        // ======================= FIX START =========================
-        // 使用正确的 QImage::Format_RGB565 格式来创建图像
-        QImage image(imageDataPtr, width, height, static_cast<QImage::Format>(5));
-        // ======================== FIX END ==========================
+        QImage image(imageDataPtr, width, height, QImage::Format_RGB16);
+        image = image.copy(); // 深拷贝以避免数据悬挂
 
-        // 更新UI显示 (重新应用字节序交换)
         if (!image.isNull()) {
-            // .rgbSwapped() 对于16位图像会交换高低字节，恰好用于修复大小端问题
             QPixmap pixmap = QPixmap::fromImage(image.rgbSwapped());
             ui->imageDisplayLabel->setPixmap(pixmap.scaled(ui->imageDisplayLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
             ui->displayStackedWidget->setCurrentIndex(1);
             ui->resolutionLabel->setText(QString("%1 x %2").arg(width).arg(height));
-        } else {
-            qDebug() << "Failed to create QImage from raw data.";
         }
 
-        // 将扫描位置移动到当前处理完的帧的末尾
         scanPos = headerPos + totalFrameSize;
     }
 
-    // 在所有处理完成后，一次性地移除所有已扫描过的数据
-    if (scanPos > 0) {
+    if (scanPos > 0)
         m_videoFrameBuffer.remove(0, scanPos);
-    }
 }
+
 
 void MainWindow::onUdpReassemblyTimeout() {
     if (m_udpBuffer.isEmpty()) return;

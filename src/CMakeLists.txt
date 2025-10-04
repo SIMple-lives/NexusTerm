@@ -3,6 +3,7 @@ project(FpgaAssist VERSION 2.0)
 
 # Find Qt 6 components
 find_package(Qt6 REQUIRED COMPONENTS Widgets SerialPort Network Multimedia MultimediaWidgets)
+message(STATUS "Found Qt6 version: ${Qt6_VERSION}")
 
 # Enable CMake's automation features for MOC, UIC, and RCC
 set(CMAKE_AUTOMOC ON)
