@@ -518,12 +518,12 @@ void MainWindow::on_clearDisplayButton_clicked()
 
 void MainWindow::on_playPauseButton_clicked()
 {
-    // 检查是否为UDP模式
+    // 检查是否为UDP模式且端口已绑定
     if (ui->communicationModeComboBox->currentIndex() == 2 && m_udpManager->isBound()) {
         if (!m_isUdpStreaming) {
-            // 开始视频流
+            // --- 开始视频流 ---
             m_isUdpStreaming = true;
-            m_videoFrameBuffer.clear(); // 清空旧的缓冲
+            m_videoFrameBuffer.clear(); // 清空旧的缓冲，确保从一个全新的状态开始
 
             // 发送1字节的启动命令 0x01
             QByteArray startCommand;
@@ -533,16 +533,18 @@ void MainWindow::on_playPauseButton_clicked()
             ui->playPauseButton->setText("停止");
             m_statusLabel->setText("UDP视频流接收中...");
         } else {
-            // 停止视频流
-            m_isUdpStreaming = false;
-            // 可选：发送停止命令，如果协议需要
-            // QByteArray stopCommand;
-            // stopCommand.append(0x00);
-            // m_udpManager->writeData(stopCommand, ui->udpTargetHostLineEdit->text(), ui->udpTargetPortSpinBox->value());
+            // --- 停止视频流 ---
+            m_isUdpStreaming = false; // 将此标志位设为false，onUdpDataReceived将自动忽略后续数据包
+            
+            // （已移除）不再向FPGA发送停止命令
             
             ui->playPauseButton->setText("播放");
             m_statusLabel->setText(QString("UDP已绑定本地端口: %1").arg(ui->udpBindPortSpinBox->value()));
             ui->resolutionLabel->clear();
+            
+            // 清空视频缓冲区，丢弃所有已接收但未处理的数据
+            m_videoFrameBuffer.clear();
+            qDebug() << "[Video Control] Streaming stopped by user. Video buffer cleared.";
         }
     } else {
         // 对于非UDP模式或UDP未绑定的情况，执行原来的媒体播放逻辑
@@ -679,24 +681,24 @@ void MainWindow::onUdpUnbound() {
 }
 
 void MainWindow::onUdpDataReceived(const QByteArray &data, const QString &senderHost, quint16 senderPort) {
-    m_rxBytes += data.size();
-    updateByteCounters();
-    // 如果是视频流模式，则进入专门的处理函数
-    if (m_isUdpStreaming) {
-        m_videoFrameBuffer.append(data);
-        processVideoFrameBuffer();
-        return; // 不再执行下面的旧逻辑
+    // 【修改】如果视频流功能已暂停，则直接忽略所有传入的数据包，实现“停止接收”
+    if (!m_isUdpStreaming) {
+        // 当 m_isUdpStreaming 为 false 时，我们不希望累加字节数或处理任何数据
+        return; 
     }
 
-    // --- 旧的通用UDP数据处理逻辑 ---
-    if (m_udpBuffer.isEmpty()) {
-        m_lastUdpSenderHost = senderHost;
-        m_lastUdpSenderPort = senderPort;
-    }
-    if (senderHost == m_lastUdpSenderHost && senderPort == m_lastUdpSenderPort) {
-        m_udpBuffer.append(data);
-        m_udpReassemblyTimer->start();
-    }
+    // 只有在 m_isUdpStreaming 为 true 时，才执行以下逻辑
+    m_rxBytes += data.size();
+    updateByteCounters();
+    
+    // 将数据追加到视频帧缓冲区
+    m_videoFrameBuffer.append(data);
+    
+    // 尝试处理缓冲区中的数据以形成图像
+    processVideoFrameBuffer();
+
+    // 注意：由于上面的 return 语句，当视频停止时，旧的通用UDP处理逻辑将不会被执行。
+    // 这符合停止视频流接收的需求。
 }
 
 // ##########################################################################
