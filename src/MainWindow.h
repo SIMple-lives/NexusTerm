@@ -43,7 +43,8 @@ private slots:
     void on_autoWrapCheckBox_toggled(bool checked);
     void on_cyclicSendCheckBox_toggled(bool checked);
     void on_communicationModeComboBox_currentIndexChanged(int index);
-    void on_sendMediaButton_clicked();
+    void on_sendTextAsFileButton_clicked();
+    void on_sendBigFileButton_clicked();
     void on_clearDisplayButton_clicked();
     void on_playPauseButton_clicked();
     void on_progressSlider_valueChanged(int value);
@@ -71,6 +72,7 @@ private slots:
     void updateLogDisplay();
     void onUdpReassemblyTimeout();
     void onTcpReassemblyTimeout();
+    void sendFileChunk();
 
     // 媒体播放器状态更新槽函数
     void updatePlaybackState(QMediaPlayer::PlaybackState state);
@@ -102,6 +104,7 @@ private:
     // 定时器
     QTimer *m_autoSendTimer;
     QTimer *m_portScanTimer;
+    QTimer *m_fileSendTimer;
 
     // 状态栏
     QLabel *m_statusLabel;
@@ -119,6 +122,8 @@ private:
     QTimer* m_tcpReassemblyTimer;
     QString m_lastUdpSenderHost;
     quint16 m_lastUdpSenderPort;
+    QByteArray m_fileDataToSend;
+    qint64 m_fileSendOffset;
 };
 
 #endif // MAINWINDOW_H

@@ -23,6 +23,7 @@ MainWindow::MainWindow(QWidget *parent)
     , m_rxBytes(0)
     , m_txBytes(0)
     , m_lastUdpSenderPort(0)
+    , m_fileSendOffset(0)
 {
     ui->setupUi(this);
     m_serialManager = new SerialManager(this);
@@ -73,6 +74,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_tcpReassemblyTimer->setInterval(200);
     m_tcpReassemblyTimer->setSingleShot(true);
     connect(m_tcpReassemblyTimer, &QTimer::timeout, this, &MainWindow::onTcpReassemblyTimeout);
+    
+    m_fileSendTimer = new QTimer(this);
+    connect(m_fileSendTimer, &QTimer::timeout, this, &MainWindow::sendFileChunk);
 
     connect(m_mediaPlayer, &QMediaPlayer::positionChanged, this, &MainWindow::updatePosition);
     connect(m_mediaPlayer, &QMediaPlayer::durationChanged, this, &MainWindow::updateDuration);
@@ -243,12 +247,14 @@ void MainWindow::updateControlsState() {
     if (modeIndex == 3) {
         bool clientSelected = ui->clientListWidget->currentItem() != nullptr;
         ui->sendButton->setEnabled(clientSelected);
-        ui->sendMediaButton->setEnabled(clientSelected);
+        ui->sendTextAsFileButton->setEnabled(clientSelected);
+        ui->sendBigFileButton->setEnabled(clientSelected);
         ui->cyclicSendCheckBox->setEnabled(clientSelected);
         ui->disconnectClientButton->setEnabled(clientSelected);
     } else {
         ui->sendButton->setEnabled(isConnected);
-        ui->sendMediaButton->setEnabled(isConnected);
+        ui->sendTextAsFileButton->setEnabled(isConnected);
+        ui->sendBigFileButton->setEnabled(isConnected);
         ui->cyclicSendCheckBox->setEnabled(isConnected);
         ui->disconnectClientButton->setEnabled(false);
     }
@@ -390,7 +396,7 @@ void MainWindow::on_communicationModeComboBox_currentIndexChanged(int index) {
     updateControlsState();
 }
 
-void MainWindow::on_sendMediaButton_clicked() {
+void MainWindow::on_sendTextAsFileButton_clicked() {
     QString filePath = QFileDialog::getOpenFileName(this, "选择媒体文件", "", "All Files (*)");
     if (filePath.isEmpty()) return;
 
@@ -424,6 +430,62 @@ void MainWindow::on_sendMediaButton_clicked() {
 
     m_logBuffer.append({QDateTime::currentDateTime(), LogEntry::Out, fileData, ""});
     updateLogDisplay();
+}
+
+void MainWindow::on_sendBigFileButton_clicked()
+{
+    QString filePath = QFileDialog::getOpenFileName(this, "选择要发送的文件", "", "All Files (*)");
+    if (filePath.isEmpty()) {
+        return;
+    }
+
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        QMessageBox::warning(this, "错误", "无法打开文件: " + file.errorString());
+        return;
+    }
+
+    m_fileDataToSend = file.readAll();
+    file.close();
+
+    if (m_fileDataToSend.isEmpty()) {
+        QMessageBox::information(this, "提示", "文件为空，无需发送。");
+        return;
+    }
+
+    m_fileSendOffset = 0;
+    int delay = ui->delaySpinBox->value();
+    
+    // 立即发送第一块数据
+    sendFileChunk();
+    
+    if (delay > 0) {
+        m_fileSendTimer->start(delay);
+    } else {
+        // 如果延时为0，循环发送直到完成
+        while(m_fileSendOffset < m_fileDataToSend.size()) {
+            sendFileChunk();
+        }
+    }
+}
+
+void MainWindow::sendFileChunk()
+{
+    if (m_fileSendOffset >= m_fileDataToSend.size()) {
+        if(m_fileSendTimer->isActive()){
+            m_fileSendTimer->stop();
+        }
+        return;
+    }
+
+    int chunkSize = ui->packetSizeSpinBox->value();
+    QByteArray chunk = m_fileDataToSend.mid(m_fileSendOffset, chunkSize);
+
+    m_udpManager->writeData(chunk, ui->udpTargetHostLineEdit->text(), ui->udpTargetPortSpinBox->value());
+
+    m_txBytes += chunk.size();
+    updateByteCounters();
+    m_fileSendOffset += chunk.size();
 }
 
 void MainWindow::on_clearDisplayButton_clicked()

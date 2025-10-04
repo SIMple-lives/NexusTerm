@@ -90,7 +90,7 @@
            <item>
             <widget class="QStackedWidget" name="settingsStackedWidget">
              <property name="currentIndex">
-              <number>3</number>
+              <number>2</number>
              </property>
              <widget class="QWidget" name="serialSettingsPage">
               <layout class="QFormLayout" name="formLayout">
@@ -273,9 +273,54 @@
           </property>
           <layout class="QVBoxLayout" name="verticalLayout_8">
            <item>
-            <widget class="QPushButton" name="sendMediaButton">
+            <widget class="QPushButton" name="sendTextAsFileButton">
              <property name="text">
-              <string>发送媒体文件</string>
+              <string>发送文本内容</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <layout class="QFormLayout" name="formLayout_5">
+             <item row="0" column="0">
+              <widget class="QLabel" name="label_packetSize">
+               <property name="text">
+                <string>每包字节:</string>
+               </property>
+              </widget>
+             </item>
+             <item row="0" column="1">
+              <widget class="QSpinBox" name="packetSizeSpinBox">
+               <property name="maximum">
+                <number>65535</number>
+               </property>
+               <property name="value">
+                <number>1400</number>
+               </property>
+              </widget>
+             </item>
+             <item row="1" column="0">
+              <widget class="QLabel" name="label_delay">
+               <property name="text">
+                <string>分包延时(ms):</string>
+               </property>
+              </widget>
+             </item>
+             <item row="1" column="1">
+              <widget class="QSpinBox" name="delaySpinBox">
+               <property name="maximum">
+                <number>10000</number>
+               </property>
+               <property name="value">
+                <number>10</number>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <widget class="QPushButton" name="sendBigFileButton">
+             <property name="text">
+              <string>发送文件</string>
              </property>
             </widget>
            </item>
