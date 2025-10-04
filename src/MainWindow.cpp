@@ -687,12 +687,22 @@ void MainWindow::onUdpDataReceived(const QByteArray &data, const QString &sender
 }
 
 void MainWindow::processVideoFrameBuffer() {
+    // ======================  关键修改部分 ======================
+    // 定义16进制帧头
+    // 对应 "OGC " 的ASCII十六进制值
+    const char headerBytes[] = {'\x4F', '\x47', '\x43', '\x20'}; 
+    const QByteArray frameHeader = QByteArray(headerBytes, 4);
+    // =========================================================
+
     // 持续处理，直到缓冲区中没有足够的数据构成一个完整的帧头
     while (m_videoFrameBuffer.size() >= 8) {
-        // 检查帧头标识
-        if (m_videoFrameBuffer.startsWith("OGC NB")) {
-            // 解析后4字节的数据长度
+        // 使用16进制字节数组进行比较
+        if (m_videoFrameBuffer.startsWith(frameHeader)) {
+            // 解析后4字节的数据长度 (分辨率)
+            // 注意：这里需要确定字节序（大端或小端）
+            // 默认QDataStream使用大端字节序 (BigEndian)
             QDataStream stream(m_videoFrameBuffer.mid(4, 4));
+            stream.setByteOrder(QDataStream::BigEndian); // 显式设置，可根据实际情况改为 LittleEndian
             quint32 imageDataSize;
             stream >> imageDataSize;
 
