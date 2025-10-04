@@ -129,6 +129,10 @@ private:
     // UDP视频流相关
     bool m_isUdpStreaming;
     QByteArray m_videoFrameBuffer;
+
+    // 单帧测试相关
+    int m_framesToSkip;         // 目标跳过的帧数
+    int m_processedFrameCount;  // 当前已处理的帧数
 };
 
 #endif // MAINWINDOW_H
