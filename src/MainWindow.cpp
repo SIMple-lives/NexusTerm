@@ -733,11 +733,13 @@ void MainWindow::processVideoFrameBuffer() {
         quint16 width, height;
         stream >> width >> height;
 
-        // 5. 对分辨率进行有效性检查，防止解析到错误数据
-        if (width == 0 || height == 0 || width > 4096 || height > 4096) { // 假设最大分辨率为4K
-            // 移除损坏的帧头，继续寻找下一个
+        // 5. [修复] 实施严格的分辨率校验，以过滤伪帧头
+        // 只有当宽高完全匹配时，才认为是有效帧
+        if (width != 640 || height != 480) {
+            // 这是一个伪帧头，移除这4个字节，然后继续搜索下一个帧头
             m_videoFrameBuffer.remove(0, 4); 
-            continue;
+            qDebug() << "Invalid frame dimension detected, likely a false header. Discarding.";
+            continue; // 继续 while 循环
         }
 
         // 6. 根据宽高计算完整的帧大小
@@ -756,17 +758,15 @@ void MainWindow::processVideoFrameBuffer() {
                      height,
                      QImage::Format_RGB16);
 
-        // [修复] 创建一个新QImage，其字节序与原图相反
-        QImage swappedImage = image.rgbSwapped();
-
-        // 9. 使用字节序交换后的图像更新UI显示
-        if (!swappedImage.isNull()) {
-            QPixmap pixmap = QPixmap::fromImage(swappedImage);
+        // 9. 更新UI显示
+        // 注意：暂时移除了 .rgbSwapped() 来首先确保画面稳定
+        if (!image.isNull()) {
+            QPixmap pixmap = QPixmap::fromImage(image);
             ui->imageDisplayLabel->setPixmap(pixmap.scaled(ui->imageDisplayLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
             ui->displayStackedWidget->setCurrentIndex(1);
             ui->resolutionLabel->setText(QString("%1 x %2").arg(width).arg(height));
         } else {
-            qDebug() << "Failed to create or swap QImage from raw data.";
+            qDebug() << "Failed to create QImage from raw data.";
         }
 
         // 10. 从缓冲区移除已经处理完的帧
