@@ -707,8 +707,8 @@ void MainWindow::processVideoFrameBuffer() {
     const QByteArray frameHeader(headerBytes, 4);
 
     while (true) {
-        // 1. 查找帧头
         int headerPos = m_videoFrameBuffer.indexOf(frameHeader);
+
         if (headerPos == -1) {
             // 如果找不到帧头，为防止分割包导致帧头不完整，保留最后3个字节
             if (m_videoFrameBuffer.size() >= frameHeader.size()) {
@@ -717,57 +717,67 @@ void MainWindow::processVideoFrameBuffer() {
             break; // 退出循环，等待更多数据
         }
 
-        // 2. 丢弃帧头前的所有无效数据
         if (headerPos > 0) {
             m_videoFrameBuffer.remove(0, headerPos);
         }
 
-        // 3. 检查元数据（帧头+宽高）是否接收完整
         if (m_videoFrameBuffer.size() < 8) {
-            break; // 数据不足，等待下次处理
+            break;
         }
 
-        // 4. 解析宽度和高度
+        int nextHeaderPos = m_videoFrameBuffer.indexOf(frameHeader, frameHeader.size());
+
+        if (nextHeaderPos == -1) {
+            break;
+        }
+
+        // --- 至此，我们找到了一个完整的帧 ---
+
+        // 提取图像数据
+        int imageDataSize = nextHeaderPos - 8;
+        QByteArray imageData = m_videoFrameBuffer.mid(8, imageDataSize);
+
+        // 解析分辨率
         QDataStream stream(m_videoFrameBuffer.mid(4, 4));
         stream.setByteOrder(QDataStream::BigEndian);
         quint16 width, height;
         stream >> width >> height;
-
-        // 5. 对分辨率进行有效性检查，防止解析到错误数据
-        if (width == 0 || height == 0 || width > 4096 || height > 4096) { // 假设最大分辨率为4K
-            // 移除损坏的帧头，继续寻找下一个
-            m_videoFrameBuffer.remove(0, 4); 
-            continue;
+        
+        // **核心改动**: 检查图像数据大小是否与分辨率匹配
+        // 假设每个像素3个字节 (RGB888)
+        if (imageData.size() != (width * height * 3)) {
+            // 数据大小不匹配，这可能是一个损坏的帧，丢弃它
+            qDebug() << "Frame data size mismatch. Expected:" << (width * height * 3) << "Got:" << imageData.size();
+            m_videoFrameBuffer.remove(0, nextHeaderPos); // 移除损坏的帧
+            continue; // 继续寻找下一个有效帧
         }
 
-        // 6. 根据宽高计算完整的帧大小
-        int imageDataSize = width * height * 3; // 假设为 RGB888 格式
-        int totalFrameSize = 8 + imageDataSize; // 元数据(8字节) + 图像数据
-
-        // 7. 检查缓冲区数据是否足以构成一个完整的帧
-        if (m_videoFrameBuffer.size() < totalFrameSize) {
-            break; // 当前数据不足一帧，等待更多数据
-        }
-
-        // 8. 提取图像数据并创建图像
-        QByteArray imageData = m_videoFrameBuffer.mid(8, imageDataSize);
-        QImage image(reinterpret_cast<const uchar*>(imageData.constData()),
-                     width,
-                     height,
+        // **核心改动**: 使用 QImage 从原始 RGB 数据创建图像
+        // 我们假设格式是 24-bit RGB (每像素3字节，R-G-B顺序)
+        // constData() 返回一个 const char*，需要强制转换为 const uchar*
+        QImage image(reinterpret_cast<const uchar*>(imageData.constData()), 
+                     width, 
+                     height, 
                      QImage::Format_RGB888);
 
-        // 9. 更新UI显示
         if (!image.isNull()) {
+            // **核心改动**: 从 QImage 创建 QPixmap
             QPixmap pixmap = QPixmap::fromImage(image);
+            
+            // 更新UI
             ui->imageDisplayLabel->setPixmap(pixmap.scaled(ui->imageDisplayLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
             ui->displayStackedWidget->setCurrentIndex(1);
             ui->resolutionLabel->setText(QString("%1 x %2").arg(width).arg(height));
         } else {
-            qDebug() << "Failed to create QImage from raw data.";
+             qDebug() << "Failed to create QImage from raw data.";
         }
 
-        // 10. 从缓冲区移除已经处理完的帧
-        m_videoFrameBuffer.remove(0, totalFrameSize);
+        // 移除已处理的帧
+        m_videoFrameBuffer.remove(0, nextHeaderPos);
+
+        // 更新字节计数
+        m_rxBytes += nextHeaderPos;
+        updateByteCounters();
     }
 }
 
