@@ -16,6 +16,9 @@
 #include <QListWidget>
 #include <QDataStream>
 
+// ##########################################################################
+// ##                  NO CHANGES IN THIS SECTION                          ##
+// ##########################################################################
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
@@ -650,6 +653,8 @@ void MainWindow::onTcpDisconnected() {
     }
 }
 void MainWindow::onTcpDataReceived(const QByteArray &data) {
+    m_rxBytes += data.size();
+    updateByteCounters();
     m_tcpBuffer.append(data);
     m_tcpReassemblyTimer->start();
 }
@@ -673,6 +678,8 @@ void MainWindow::onUdpUnbound() {
 }
 
 void MainWindow::onUdpDataReceived(const QByteArray &data, const QString &senderHost, quint16 senderPort) {
+    m_rxBytes += data.size();
+    updateByteCounters();
     // 如果是视频流模式，则进入专门的处理函数
     if (m_isUdpStreaming) {
         m_videoFrameBuffer.append(data);
@@ -696,75 +703,71 @@ void MainWindow::onUdpDataReceived(const QByteArray &data, const QString &sender
 // ##########################################################################
 
 void MainWindow::processVideoFrameBuffer() {
-    // 定义16进制帧头
     const char headerBytes[] = {'\x4F', '\x47', '\x43', '\x20'};
     const QByteArray frameHeader(headerBytes, 4);
 
-    // 只要缓冲区中可能存在一个完整的帧，就持续处理
     while (true) {
-        // 1. 查找第一个帧头的位置
+        // 1. 查找帧头
         int headerPos = m_videoFrameBuffer.indexOf(frameHeader);
-
-        // 如果连一个帧头都找不到，就清空大部分无效数据并退出循环，等待新数据
         if (headerPos == -1) {
+            // 如果找不到帧头，为防止分割包导致帧头不完整，保留最后3个字节
             if (m_videoFrameBuffer.size() >= frameHeader.size()) {
-                 m_videoFrameBuffer = m_videoFrameBuffer.right(frameHeader.size() - 1);
+                m_videoFrameBuffer = m_videoFrameBuffer.right(frameHeader.size() - 1);
             }
-            break;
+            break; // 退出循环，等待更多数据
         }
 
-        // 2. 丢弃在第一个有效帧头之前的所有垃圾数据
+        // 2. 丢弃帧头前的所有无效数据
         if (headerPos > 0) {
             m_videoFrameBuffer.remove(0, headerPos);
         }
 
-        // 3. 检查数据是否足够包含一个完整的帧头和分辨率信息（共8字节）
+        // 3. 检查元数据（帧头+宽高）是否接收完整
         if (m_videoFrameBuffer.size() < 8) {
-            // 数据不够，退出循环，等待更多数据
-            break;
+            break; // 数据不足，等待下次处理
         }
 
-        // 4. 查找下一个帧头，以确定当前帧的结束位置
-        //    注意：搜索的起始位置是当前帧头之后（即从第4个字节开始），避免找到自己
-        int nextHeaderPos = m_videoFrameBuffer.indexOf(frameHeader, frameHeader.size());
-
-        // 如果找不到下一个帧头，说明当前帧的数据还不完整，退出循环，等待更多数据
-        if (nextHeaderPos == -1) {
-            break;
-        }
-
-        // --- 如果代码能执行到这里，说明我们已经有了一个完整的帧 ---
-
-        // 5. 提取当前帧的图像数据
-        //    图像数据在[帧头+分辨率]之后，到下一个帧头之前
-        int imageDataSize = nextHeaderPos - 8;
-        QByteArray imageData = m_videoFrameBuffer.mid(8, imageDataSize);
-
-        // 6. 从当前帧头中解析分辨率 (宽度和高度)
+        // 4. 解析宽度和高度
         QDataStream stream(m_videoFrameBuffer.mid(4, 4));
-        stream.setByteOrder(QDataStream::BigEndian); // 假设为大端字节序
+        stream.setByteOrder(QDataStream::BigEndian);
         quint16 width, height;
         stream >> width >> height;
 
-        // 7. 更新UI，显示图像和分辨率
-        QPixmap pixmap;
-        // 假设图像格式为JPG，如果不是请修改"JPG"
-        if (pixmap.loadFromData(imageData, "JPG")) {
-            ui->imageDisplayLabel->setPixmap(pixmap.scaled(ui->imageDisplayLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
-            ui->displayStackedWidget->setCurrentIndex(1); // 切换到图像显示页
-            ui->resolutionLabel->setText(QString("%1 x %2").arg(width).arg(height));
-        } else {
-             qDebug() << "Failed to load pixmap from data. Size:" << imageData.size();
+        // 5. 对分辨率进行有效性检查，防止解析到错误数据
+        if (width == 0 || height == 0 || width > 4096 || height > 4096) { // 假设最大分辨率为4K
+            // 移除损坏的帧头，继续寻找下一个
+            m_videoFrameBuffer.remove(0, 4); 
+            continue;
         }
 
-        // 8. 从缓冲区中移除已处理的这一个完整帧（包括它的帧头）
-        m_videoFrameBuffer.remove(0, nextHeaderPos);
+        // 6. 根据宽高计算完整的帧大小
+        int imageDataSize = width * height * 3; // 假设为 RGB888 格式
+        int totalFrameSize = 8 + imageDataSize; // 元数据(8字节) + 图像数据
 
-        // 9. 更新接收字节计数
-        m_rxBytes += nextHeaderPos;
-        updateByteCounters();
+        // 7. 检查缓冲区数据是否足以构成一个完整的帧
+        if (m_videoFrameBuffer.size() < totalFrameSize) {
+            break; // 当前数据不足一帧，等待更多数据
+        }
 
-        // 10. 继续循环，处理缓冲区中可能存在的下一个完整帧
+        // 8. 提取图像数据并创建图像
+        QByteArray imageData = m_videoFrameBuffer.mid(8, imageDataSize);
+        QImage image(reinterpret_cast<const uchar*>(imageData.constData()),
+                     width,
+                     height,
+                     QImage::Format_RGB888);
+
+        // 9. 更新UI显示
+        if (!image.isNull()) {
+            QPixmap pixmap = QPixmap::fromImage(image);
+            ui->imageDisplayLabel->setPixmap(pixmap.scaled(ui->imageDisplayLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            ui->displayStackedWidget->setCurrentIndex(1);
+            ui->resolutionLabel->setText(QString("%1 x %2").arg(width).arg(height));
+        } else {
+            qDebug() << "Failed to create QImage from raw data.";
+        }
+
+        // 10. 从缓冲区移除已经处理完的帧
+        m_videoFrameBuffer.remove(0, totalFrameSize);
     }
 }
 
@@ -772,8 +775,8 @@ void MainWindow::processVideoFrameBuffer() {
 void MainWindow::onUdpReassemblyTimeout() {
     if (m_udpBuffer.isEmpty()) return;
     handleIncomingData(m_udpBuffer);
-    m_rxBytes += m_udpBuffer.size();
-    updateByteCounters();
+    // m_rxBytes += m_udpBuffer.size(); // 已在 onUdpDataReceived 中处理，此处移除
+    // updateByteCounters();            // 已在 onUdpDataReceived 中处理，此处移除
     m_udpBuffer.clear();
     m_lastUdpSenderHost.clear();
     m_lastUdpSenderPort = 0;
@@ -782,8 +785,8 @@ void MainWindow::onUdpReassemblyTimeout() {
 void MainWindow::onTcpReassemblyTimeout() {
     if (m_tcpBuffer.isEmpty()) return;
     handleIncomingData(m_tcpBuffer);
-    m_rxBytes += m_tcpBuffer.size();
-    updateByteCounters();
+    // m_rxBytes += m_tcpBuffer.size(); // 已在 onTcpDataReceived 中处理，此处移除
+    // updateByteCounters();            // 已在 onTcpDataReceived 中处理，此处移除
     m_tcpBuffer.clear();
 }
 
