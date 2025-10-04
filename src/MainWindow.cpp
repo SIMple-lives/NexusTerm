@@ -30,8 +30,9 @@ MainWindow::MainWindow(QWidget *parent)
     , m_lastUdpSenderPort(0)
     , m_fileSendOffset(0)
     , m_isUdpStreaming(false) // 初始化流状态
-    , m_framesToSkip(1000)       // <<< 新增：设置要跳过的帧数，可修改
-    , m_processedFrameCount(0)  // <<< 新增：初始化已处理帧计数器
+    // 恢复正常播放，不再需要测试变量
+    , m_framesToSkip(0)
+    , m_processedFrameCount(0)
 {
     ui->setupUi(this);
     m_serialManager = new SerialManager(this);
@@ -527,9 +528,6 @@ void MainWindow::on_playPauseButton_clicked()
             m_isUdpStreaming = true;
             m_videoFrameBuffer.clear(); // 清空旧的缓冲
 
-            // <<< 新增：重置已处理的帧数计数器 >>>
-            m_processedFrameCount = 0;
-
             // 发送1字节的启动命令 0x01
             QByteArray startCommand;
             startCommand.append(0x01);
@@ -540,8 +538,6 @@ void MainWindow::on_playPauseButton_clicked()
         } else {
             // --- 停止视频流 ---
             m_isUdpStreaming = false; // 将此标志位设为false，onUdpDataReceived将自动忽略后续数据包
-            
-            // （已移除）不再向FPGA发送停止命令
             
             ui->playPauseButton->setText("播放");
             m_statusLabel->setText(QString("UDP已绑定本地端口: %1").arg(ui->udpBindPortSpinBox->value()));
@@ -675,7 +671,6 @@ void MainWindow::onUdpBound() {
     m_statusLabel->setText(QString("UDP已绑定本地端口: %1").arg(ui->udpBindPortSpinBox->value()));
 }
 void MainWindow::onUdpUnbound() {
-    // 如果在解绑时正在进行视频流，则停止它
     if (m_isUdpStreaming) {
         m_isUdpStreaming = false;
         ui->playPauseButton->setText("播放");
@@ -686,67 +681,75 @@ void MainWindow::onUdpUnbound() {
 }
 
 void MainWindow::onUdpDataReceived(const QByteArray &data, const QString &senderHost, quint16 senderPort) {
-    // 【修改】如果视频流功能已暂停，则直接忽略所有传入的数据包，实现“停止接收”
     if (!m_isUdpStreaming) {
-        // 当 m_isUdpStreaming 为 false 时，我们不希望累加字节数或处理任何数据
         return; 
     }
-
-    // 只有在 m_isUdpStreaming 为 true 时，才执行以下逻辑
     m_rxBytes += data.size();
     updateByteCounters();
-    
-    // 将数据追加到视频帧缓冲区
     m_videoFrameBuffer.append(data);
-    
-    // 尝试处理缓冲区中的数据以形成图像
     processVideoFrameBuffer();
-
-    // 注意：由于上面的 return 语句，当视频停止时，旧的通用UDP处理逻辑将不会被执行。
-    // 这符合停止视频流接收的需求。
 }
 
 // ##########################################################################
-// ##                        FIXED FUNCTION BELOW                          ##
+// ##                        FINAL FIXED FUNCTION BELOW                    ##
 // ##########################################################################
 
 void MainWindow::processVideoFrameBuffer() {
-    static const QByteArray frameHeader("\x4F\x47\x43\x20", 4); // 'O', 'G', 'C', ' '
+    // ======================= NEW FRAME HEADER =======================
+    // 定义一个新的、独特的帧头，FPGA端必须发送完全相同的字节序列
+    static const QByteArray frameHeader("\xAA\xBB\xCC\xDD", 4);
+    // ================================================================
 
     while (true)
     {
-        if (!m_isUdpStreaming) { return; }
-
+        // 1. 查找帧头
         int headerPos = m_videoFrameBuffer.indexOf(frameHeader);
-        if (headerPos == -1) { return; }
+        if (headerPos == -1) {
+            // 缓冲区没有帧头，退出等待更多数据
+            return;
+        }
+
+        // 2. 丢弃帧头前的所有无效数据
         if (headerPos > 0) {
             qDebug() << "[Video Sync] Discarding" << headerPos << "bytes of invalid data before header.";
             m_videoFrameBuffer.remove(0, headerPos);
         }
 
-        if (m_videoFrameBuffer.size() < 8) { return; }
+        // 3. 检查元数据（宽度和高度）是否已接收
+        if (m_videoFrameBuffer.size() < 8) { // FrameHeader(4) + Width(2) + Height(2) = 8
+            return; // 数据不足，等待更多数据
+        }
         
+        // 4. 解析宽度和高度
         const uchar* meta = reinterpret_cast<const uchar*>(m_videoFrameBuffer.constData() + 4);
         quint16 width  = (meta[0] << 8) | meta[1];
         quint16 height = (meta[2] << 8) | meta[3];
 
+        // 5. 对分辨率进行有效性检查
         if (width == 0 || height == 0 || width > 4096 || height > 4096) {
-            qDebug() << "[Video ERROR] Parsed invalid resolution:" << width << "x" << height << ". Discarding frame header.";
-            m_videoFrameBuffer.remove(0, 4);
-            continue;
+            qDebug() << "[Video ERROR] Parsed invalid resolution:" << width << "x" << height << ". Discarding invalid header.";
+            m_videoFrameBuffer.remove(0, 1); // 丢弃一个字节，以寻找下一个可能的帧头
+            continue; // 继续下一次循环查找
         }
         
-        int imageDataSize = width * height * 2;
-        int totalFrameSize = 8 + imageDataSize;
+        int imageDataSize = width * height * 2; // RGB565, 每个像素2字节
+        int totalFrameSize = 8 + imageDataSize; // 帧头(4) + 元数据(4) + 图像数据
         
-        if (m_videoFrameBuffer.size() < totalFrameSize) { return; }
+        // 6. 检查是否已接收到完整的帧数据
+        if (m_videoFrameBuffer.size() < totalFrameSize) {
+            return; // 帧数据不完整，等待更多数据
+        }
 
+        // 7. 提取并处理有效图像数据
         qDebug() << "[Video Render] Full frame received. Rendering image with resolution" << width << "x" << height;
         
         QByteArray imageDataBytes = m_videoFrameBuffer.mid(8, imageDataSize);
+        
+        // 修正字节序：交换每2个字节（16位像素）的位置 (大端 -> 小端)
         for(int i = 0; i < imageDataSize; i += 2) {
             std::swap(imageDataBytes[i], imageDataBytes[i+1]);
         }
+        
         const uchar* correctedImageDataPtr = reinterpret_cast<const uchar*>(imageDataBytes.constData());
         QImage image(correctedImageDataPtr, width, height, QImage::Format_RGB16);
 
@@ -756,34 +759,19 @@ void MainWindow::processVideoFrameBuffer() {
             ui->imageDisplayLabel->setPixmap(pixmap.scaled(ui->imageDisplayLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
             ui->displayStackedWidget->setCurrentIndex(1);
             ui->resolutionLabel->setText(QString("%1 x %2").arg(width).arg(height));
-
-            // ======================= NEW TEST LOGIC =======================
-            // 递增已处理的帧计数器
-            m_processedFrameCount++;
-            qDebug() << "[Video Test] Processed frame count:" << m_processedFrameCount;
-
-            // 检查是否已达到需要跳过的帧数
-            if (m_processedFrameCount >= m_framesToSkip) {
-                m_isUdpStreaming = false; 
-                ui->playPauseButton->setText("播放");
-                m_statusLabel->setText("已暂停 (单帧测试模式)");
-                qDebug() << "[Video Test] Paused after skipping" << m_framesToSkip << "frames.";
-            }
-            // ================================================================
-
         } else {
             qDebug() << "[Video ERROR] QImage failed to load from data.";
         }
 
+        // 8. 移除已处理的完整数据帧
         m_videoFrameBuffer.remove(0, totalFrameSize);
     }
 }
 
+
 void MainWindow::onUdpReassemblyTimeout() {
     if (m_udpBuffer.isEmpty()) return;
     handleIncomingData(m_udpBuffer);
-    // m_rxBytes += m_udpBuffer.size(); // 已在 onUdpDataReceived 中处理，此处移除
-    // updateByteCounters();            // 已在 onUdpDataReceived 中处理，此处移除
     m_udpBuffer.clear();
     m_lastUdpSenderHost.clear();
     m_lastUdpSenderPort = 0;
@@ -792,8 +780,6 @@ void MainWindow::onUdpReassemblyTimeout() {
 void MainWindow::onTcpReassemblyTimeout() {
     if (m_tcpBuffer.isEmpty()) return;
     handleIncomingData(m_tcpBuffer);
-    // m_rxBytes += m_tcpBuffer.size(); // 已在 onTcpDataReceived 中处理，此处移除
-    // updateByteCounters();            // 已在 onTcpDataReceived 中处理，此处移除
     m_tcpBuffer.clear();
 }
 
