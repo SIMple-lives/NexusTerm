@@ -741,7 +741,8 @@ void MainWindow::processVideoFrameBuffer() {
         }
 
         // 6. 根据宽高计算完整的帧大小
-        int imageDataSize = width * height * 3; // 假设为 RGB888 格式
+        // [修复] 将每像素3字节(RGB888)修改为2字节(RGB565)
+        int imageDataSize = width * height * 2; // RGB565 format is 2 bytes per pixel
         int totalFrameSize = 8 + imageDataSize; // 元数据(8字节) + 图像数据
 
         // 7. 检查缓冲区数据是否足以构成一个完整的帧
@@ -751,10 +752,11 @@ void MainWindow::processVideoFrameBuffer() {
 
         // 8. 提取图像数据并创建图像
         QByteArray imageData = m_videoFrameBuffer.mid(8, imageDataSize);
+        // [修复] 将图像格式从 Format_RGB888 修改为 Format_RGB16 (用于RGB565)
         QImage image(reinterpret_cast<const uchar*>(imageData.constData()),
                      width,
                      height,
-                     QImage::Format_RGB888);
+                     QImage::Format_RGB16);
 
         // 9. 更新UI显示
         if (!image.isNull()) {
