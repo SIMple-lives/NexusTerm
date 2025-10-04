@@ -132,6 +132,9 @@ void MainWindow::initUI() {
     updateControlsState();
 
     connect(displayGroup, &QButtonGroup::buttonClicked, this, &MainWindow::updateLogDisplay);
+    
+    // 初始化时清空分辨率标签
+    ui->resolutionLabel->clear();
 }
 
 void MainWindow::handleIncomingData(const QByteArray &data) {
@@ -500,6 +503,7 @@ void MainWindow::on_clearDisplayButton_clicked()
 {
     m_mediaPlayer->stop();
     ui->imageDisplayLabel->clear();
+    ui->resolutionLabel->clear(); // 同时清空分辨率
     ui->displayStackedWidget->setCurrentIndex(0);
     if (m_tempMediaFile) {
         m_tempMediaFile->remove();
@@ -533,7 +537,8 @@ void MainWindow::on_playPauseButton_clicked()
             // m_udpManager->writeData(stopCommand, ui->udpTargetHostLineEdit->text(), ui->udpTargetPortSpinBox->value());
             
             ui->playPauseButton->setText("播放");
-             m_statusLabel->setText(QString("UDP已绑定本地端口: %1").arg(ui->udpBindPortSpinBox->value()));
+            m_statusLabel->setText(QString("UDP已绑定本地端口: %1").arg(ui->udpBindPortSpinBox->value()));
+            ui->resolutionLabel->clear();
         }
     } else {
         // 对于非UDP模式或UDP未绑定的情况，执行原来的媒体播放逻辑
@@ -687,54 +692,68 @@ void MainWindow::onUdpDataReceived(const QByteArray &data, const QString &sender
 }
 
 void MainWindow::processVideoFrameBuffer() {
-    // ======================  关键修改部分 ======================
     // 定义16进制帧头
-    // 对应 "OGC " 的ASCII十六进制值
     const char headerBytes[] = {'\x4F', '\x47', '\x43', '\x20'}; 
     const QByteArray frameHeader = QByteArray(headerBytes, 4);
-    // =========================================================
-
-    // 持续处理，直到缓冲区中没有足够的数据构成一个完整的帧头
+    
+    // 只要缓冲区数据大于等于一个最小帧的大小（8字节头）就尝试处理
     while (m_videoFrameBuffer.size() >= 8) {
-        // 使用16进制字节数组进行比较
-        if (m_videoFrameBuffer.startsWith(frameHeader)) {
-            // 解析后4字节的数据长度 (分辨率)
-            // 注意：这里需要确定字节序（大端或小端）
-            // 默认QDataStream使用大端字节序 (BigEndian)
-            QDataStream stream(m_videoFrameBuffer.mid(4, 4));
-            stream.setByteOrder(QDataStream::BigEndian); // 显式设置，可根据实际情况改为 LittleEndian
-            quint32 imageDataSize;
-            stream >> imageDataSize;
-
-            // 检查整个帧的数据是否已完全接收
-            if (m_videoFrameBuffer.size() >= (8 + imageDataSize)) {
-                // 提取图像数据
-                QByteArray imageData = m_videoFrameBuffer.mid(8, imageDataSize);
-                
-                // 更新UI显示图像
-                QPixmap pixmap;
-                if (pixmap.loadFromData(imageData)) {
-                    ui->imageDisplayLabel->setPixmap(pixmap.scaled(ui->imageDisplayLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
-                    ui->displayStackedWidget->setCurrentIndex(1); // 切换到图像显示页
-                }
-
-                // 从缓冲区中移除已处理的帧
-                m_videoFrameBuffer.remove(0, 8 + imageDataSize);
-
-                // 更新字节计数
-                m_rxBytes += (8 + imageDataSize);
-                updateByteCounters();
-
-            } else {
-                // 数据不完整，跳出循环等待更多数据
-                break;
-            }
-        } else {
-            // 帧头不匹配，数据可能出错或不同步
-            // 策略：丢弃第一个字节，然后继续寻找有效的帧头
-            m_videoFrameBuffer.remove(0, 1);
-            qDebug() << "UDP video stream sync error. Searching for next frame header.";
+        // 查找帧头
+        int headerPos = m_videoFrameBuffer.indexOf(frameHeader);
+        
+        if (headerPos == -1) {
+            // 缓冲区中没有帧头，可以清空大部分，只保留最后几个字节以防帧头被截断
+            m_videoFrameBuffer = m_videoFrameBuffer.right(frameHeader.size() - 1);
+            return;
         }
+        
+        // 丢弃帧头前的所有无效数据
+        if (headerPos > 0) {
+            m_videoFrameBuffer.remove(0, headerPos);
+        }
+
+        // 再次检查长度，确保移除无效数据后仍然足够解析
+        if (m_videoFrameBuffer.size() < 8) {
+            return;
+        }
+
+        // 解析分辨率 (宽度和高度)
+        QDataStream stream(m_videoFrameBuffer.mid(4, 4));
+        stream.setByteOrder(QDataStream::BigEndian); // 假设为大端字节序
+        quint16 width, height;
+        stream >> width >> height;
+
+        // **一个关键的假设**：我们假设每一帧图像数据都紧跟在8字节的帧头之后，
+        // 并且一个UDP包至少包含一个完整的帧。
+        // 为了找到帧的结束，我们必须再次搜索下一个帧头。
+        int nextHeaderPos = m_videoFrameBuffer.indexOf(frameHeader, frameHeader.size());
+        
+        // 如果没有找到下一个帧头，说明当前缓冲区的数据不完整，需要等待更多数据
+        if (nextHeaderPos == -1) {
+            return;
+        }
+        
+        // 提取当前帧的图像数据
+        int imageDataSize = nextHeaderPos - 8;
+        QByteArray imageData = m_videoFrameBuffer.mid(8, imageDataSize);
+
+        // 更新UI显示图像
+        QPixmap pixmap;
+        if (pixmap.loadFromData(imageData)) {
+            ui->imageDisplayLabel->setPixmap(pixmap.scaled(ui->imageDisplayLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            ui->displayStackedWidget->setCurrentIndex(1); // 切换到图像显示页
+            // 更新分辨率标签
+            ui->resolutionLabel->setText(QString("%1 x %2").arg(width).arg(height));
+        } else {
+             qDebug() << "Failed to load pixmap from data. Size:" << imageData.size();
+        }
+
+        // 从缓冲区中移除已处理的完整帧
+        m_videoFrameBuffer.remove(0, nextHeaderPos);
+
+        // 更新字节计数
+        m_rxBytes += nextHeaderPos;
+        updateByteCounters();
     }
 }
 

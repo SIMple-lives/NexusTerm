@@ -87,7 +87,7 @@ private:
     void updateControlsState();
     void updateByteCounters();
     void handleIncomingData(const QByteArray &data);
-    void processVideoFrameBuffer(); // 新增函数，用于处理视频帧数据
+    void processVideoFrameBuffer();
 
 private:
     Ui::MainWindow *ui;
