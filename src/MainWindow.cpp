@@ -15,6 +15,7 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QDataStream>
+#include <QDebug>
 
 // ##########################################################################
 // ##                  NO CHANGES IN THIS SECTION                          ##
@@ -704,48 +705,82 @@ void MainWindow::onUdpDataReceived(const QByteArray &data, const QString &sender
 
 void MainWindow::processVideoFrameBuffer() {
     static const QByteArray frameHeader("\x4F\x47\x43\x20", 4); // 'O', 'G', 'C', ' '
-    int scanPos = 0;
 
-    while (true) {
-        int headerPos = m_videoFrameBuffer.indexOf(frameHeader, scanPos);
-        if (headerPos == -1)
-            break;
+    while (true) // 循环处理缓冲区中的数据
+    {
+        // --- 1. 查找帧头 ---
+        int headerPos = m_videoFrameBuffer.indexOf(frameHeader);
 
-        if (m_videoFrameBuffer.size() < headerPos + 8)
-            break;
+        // 如果找不到帧头，说明当前缓冲区没有有效数据或有效数据的开头
+        if (headerPos == -1) {
+            qDebug() << "[Video Sync] No frame header found in buffer of size:" << m_videoFrameBuffer.size() << ". Waiting for more data.";
+            // 如果缓冲区变得异常大但仍找不到帧头，可能需要清空以防内存溢出
+            if (m_videoFrameBuffer.size() > 20 * 1024 * 1024) { // e.g., 20MB threshold
+                 qDebug() << "[Video WARN] Buffer is too large without a valid header. Clearing buffer.";
+                 m_videoFrameBuffer.clear();
+            }
+            return; // 退出函数，等待下一次数据到来
+        }
 
-        const uchar* meta = reinterpret_cast<const uchar*>(m_videoFrameBuffer.constData() + headerPos + 4);
+        // --- 2. 同步数据流 ---
+        // 如果帧头不在缓冲区的最开始，说明帧头前面是无效的、损坏的数据，全部丢弃
+        if (headerPos > 0) {
+            qDebug() << "[Video Sync] Found header at pos" << headerPos << ". Discarding" << headerPos << "bytes of invalid data.";
+            m_videoFrameBuffer.remove(0, headerPos);
+        }
+
+        // --- 3. 验证元数据完整性 ---
+        // 检查缓冲区大小是否足够包含元数据（4字节宽度+高度）
+        if (m_videoFrameBuffer.size() < 8) {
+            qDebug() << "[Video Parse] Found header, but buffer size" << m_videoFrameBuffer.size() << "is too small for metadata. Waiting for more data.";
+            return; // 元数据不完整，等待后续数据包
+        }
+
+        // --- 4. 解析分辨率 ---
+        const uchar* meta = reinterpret_cast<const uchar*>(m_videoFrameBuffer.constData() + 4);
         quint16 width  = (meta[0] << 8) | meta[1];
         quint16 height = (meta[2] << 8) | meta[3];
 
-        if (width != 640 || height != 480) {
-            scanPos = headerPos + 4;
+        // 增加一个基本的合理性检查，防止解析出异常的分辨率导致程序崩溃
+        if (width == 0 || height == 0 || width > 4096 || height > 4096) {
+            qDebug() << "[Video ERROR] Parsed invalid resolution:" << width << "x" << height << ". Assuming data corruption. Discarding frame header.";
+            m_videoFrameBuffer.remove(0, 4); // 移除这个错误的4字节帧头，继续下一次循环寻找下一个有效帧头
             continue;
         }
-
-        int imageDataSize = width * height * 2;
+        
+        // --- 5. 验证帧数据完整性 ---
+        int imageDataSize = width * height * 2; // RGB16 格式，每像素2字节
         int totalFrameSize = 8 + imageDataSize;
-        if (m_videoFrameBuffer.size() < headerPos + totalFrameSize)
-            break;
+        
+        qDebug() << "[Video Parse] Parsed resolution:" << width << "x" << height << ". Required frame size:" << totalFrameSize << ". Current buffer size:" << m_videoFrameBuffer.size();
 
-        const uchar* imageDataPtr = reinterpret_cast<const uchar*>(m_videoFrameBuffer.constData() + headerPos + 8);
+        if (m_videoFrameBuffer.size() < totalFrameSize) {
+            qDebug() << "[Video Parse] Incomplete frame data. Waiting for more data.";
+            return; // 图像数据不完整，等待后续数据包
+        }
+
+        // --- 6. 处理并显示完整的帧 ---
+        qDebug() << "[Video Render] Frame data is complete. Rendering image...";
+        const uchar* imageDataPtr = reinterpret_cast<const uchar*>(m_videoFrameBuffer.constData() + 8);
         QImage image(imageDataPtr, width, height, QImage::Format_RGB16);
-        image = image.copy(); // 深拷贝以避免数据悬挂
+        
+        image = image.copy(); // 创建深拷贝，防止后续操作导致数据悬空
 
         if (!image.isNull()) {
             QPixmap pixmap = QPixmap::fromImage(image.rgbSwapped());
             ui->imageDisplayLabel->setPixmap(pixmap.scaled(ui->imageDisplayLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
             ui->displayStackedWidget->setCurrentIndex(1);
             ui->resolutionLabel->setText(QString("%1 x %2").arg(width).arg(height));
+        } else {
+            qDebug() << "[Video ERROR] QImage failed to load from data, despite buffer being correct size.";
         }
 
-        scanPos = headerPos + totalFrameSize;
+        // --- 7. 清理已处理的数据 ---
+        qDebug() << "[Video Clean] Frame rendered successfully. Removing" << totalFrameSize << "bytes from buffer.";
+        m_videoFrameBuffer.remove(0, totalFrameSize);
+        // 循环继续，立即尝试处理缓冲区中剩余的数据（可能是下一帧）
     }
-
-    if (scanPos > 0)
-        m_videoFrameBuffer.remove(0, scanPos);
 }
-
 
 void MainWindow::onUdpReassemblyTimeout() {
     if (m_udpBuffer.isEmpty()) return;
