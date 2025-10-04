@@ -16,6 +16,9 @@
 #include <QListWidget>
 #include <QDataStream>
 
+// ##########################################################################
+// ##                  NO CHANGES IN THIS SECTION                          ##
+// ##########################################################################
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
@@ -700,12 +703,9 @@ void MainWindow::processVideoFrameBuffer() {
     const char headerBytes[] = {'\x4F', '\x47', '\x43', '\x20'};
     const QByteArray frameHeader(headerBytes, 4);
 
-    // 只要缓冲区中可能存在一个完整的帧，就持续处理
     while (true) {
-        // 1. 查找第一个帧头的位置
         int headerPos = m_videoFrameBuffer.indexOf(frameHeader);
 
-        // 如果连一个帧头都找不到，就清空大部分无效数据并退出循环，等待新数据
         if (headerPos == -1) {
             if (m_videoFrameBuffer.size() >= frameHeader.size()) {
                  m_videoFrameBuffer = m_videoFrameBuffer.right(frameHeader.size() - 1);
@@ -713,58 +713,67 @@ void MainWindow::processVideoFrameBuffer() {
             break;
         }
 
-        // 2. 丢弃在第一个有效帧头之前的所有垃圾数据
         if (headerPos > 0) {
             m_videoFrameBuffer.remove(0, headerPos);
         }
 
-        // 3. 检查数据是否足够包含一个完整的帧头和分辨率信息（共8字节）
         if (m_videoFrameBuffer.size() < 8) {
-            // 数据不够，退出循环，等待更多数据
             break;
         }
 
-        // 4. 查找下一个帧头，以确定当前帧的结束位置
-        //    注意：搜索的起始位置是当前帧头之后（即从第4个字节开始），避免找到自己
         int nextHeaderPos = m_videoFrameBuffer.indexOf(frameHeader, frameHeader.size());
 
-        // 如果找不到下一个帧头，说明当前帧的数据还不完整，退出循环，等待更多数据
         if (nextHeaderPos == -1) {
             break;
         }
 
-        // --- 如果代码能执行到这里，说明我们已经有了一个完整的帧 ---
+        // --- 至此，我们找到了一个完整的帧 ---
 
-        // 5. 提取当前帧的图像数据
-        //    图像数据在[帧头+分辨率]之后，到下一个帧头之前
+        // 提取图像数据
         int imageDataSize = nextHeaderPos - 8;
         QByteArray imageData = m_videoFrameBuffer.mid(8, imageDataSize);
 
-        // 6. 从当前帧头中解析分辨率 (宽度和高度)
+        // 解析分辨率
         QDataStream stream(m_videoFrameBuffer.mid(4, 4));
-        stream.setByteOrder(QDataStream::BigEndian); // 假设为大端字节序
+        stream.setByteOrder(QDataStream::BigEndian);
         quint16 width, height;
         stream >> width >> height;
-
-        // 7. 更新UI，显示图像和分辨率
-        QPixmap pixmap;
-        // 假设图像格式为JPG，如果不是请修改"JPG"
-        if (pixmap.loadFromData(imageData, "JPG")) {
-            ui->imageDisplayLabel->setPixmap(pixmap.scaled(ui->imageDisplayLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
-            ui->displayStackedWidget->setCurrentIndex(1); // 切换到图像显示页
-            ui->resolutionLabel->setText(QString("%1 x %2").arg(width).arg(height));
-        } else {
-             qDebug() << "Failed to load pixmap from data. Size:" << imageData.size();
+        
+        // **核心改动**: 检查图像数据大小是否与分辨率匹配
+        // 假设每个像素3个字节 (RGB888)
+        if (imageData.size() != (width * height * 3)) {
+            // 数据大小不匹配，这可能是一个损坏的帧，丢弃它
+            qDebug() << "Frame data size mismatch. Expected:" << (width * height * 3) << "Got:" << imageData.size();
+            m_videoFrameBuffer.remove(0, nextHeaderPos); // 移除损坏的帧
+            continue; // 继续寻找下一个有效帧
         }
 
-        // 8. 从缓冲区中移除已处理的这一个完整帧（包括它的帧头）
+        // **核心改动**: 使用 QImage 从原始 RGB 数据创建图像
+        // 我们假设格式是 24-bit RGB (每像素3字节，R-G-B顺序)
+        // constData() 返回一个 const char*，需要强制转换为 const uchar*
+        QImage image(reinterpret_cast<const uchar*>(imageData.constData()), 
+                     width, 
+                     height, 
+                     QImage::Format_RGB888);
+
+        if (!image.isNull()) {
+            // **核心改动**: 从 QImage 创建 QPixmap
+            QPixmap pixmap = QPixmap::fromImage(image);
+            
+            // 更新UI
+            ui->imageDisplayLabel->setPixmap(pixmap.scaled(ui->imageDisplayLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            ui->displayStackedWidget->setCurrentIndex(1);
+            ui->resolutionLabel->setText(QString("%1 x %2").arg(width).arg(height));
+        } else {
+             qDebug() << "Failed to create QImage from raw data.";
+        }
+
+        // 移除已处理的帧
         m_videoFrameBuffer.remove(0, nextHeaderPos);
 
-        // 9. 更新接收字节计数
+        // 更新字节计数
         m_rxBytes += nextHeaderPos;
         updateByteCounters();
-
-        // 10. 继续循环，处理缓冲区中可能存在的下一个完整帧
     }
 }
 
