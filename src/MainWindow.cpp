@@ -711,85 +711,83 @@ void MainWindow::processVideoFrameBuffer() {
     static const QByteArray frameHeader("\xF0\x5A\xA5\x0F", 4);
     static const int metaDataSize = 8; // Header(4) + Width(2) + Height(2)
 
-    // Loop as long as there's a possibility of extracting a full frame
+    // 循环处理，确保缓冲区内的所有完整帧都被处理
     while (true) {
-        // --- Step 1: Find the start of a potential frame ---
+        // --- 步骤 1: 寻找帧头并同步缓冲区 ---
         int startHeaderPos = m_videoFrameBuffer.indexOf(frameHeader);
         if (startHeaderPos == -1) {
-            // No header found, we can't do anything. Wait for more data.
+            // 缓冲区内没有找到任何帧头，无法处理，等待更多数据
             return;
         }
-
-        // Discard any junk data before the first header we found
+        // 丢弃在第一个有效帧头前的所有垃圾数据
         m_videoFrameBuffer.remove(0, startHeaderPos);
 
-        // --- Step 2: Find the start of the NEXT frame ---
-        // This defines the boundary of the current frame.
-        // We start searching *after* the current frame's header.
-        int nextHeaderPos = m_videoFrameBuffer.indexOf(frameHeader, frameHeader.size());
-        if (nextHeaderPos == -1) {
-            // We have the beginning of a frame, but not the end.
-            // Wait for more data to arrive.
+        // --- 步骤 2: 检查元数据是否完整 ---
+        if (m_videoFrameBuffer.size() < metaDataSize) {
+            // 数据不足以读取宽度和高度，等待更多数据
             return;
         }
 
-        // --- Step 3: Extract the complete frame packet ---
-        // The complete data for one frame is everything between the two headers.
-        QByteArray frameData = m_videoFrameBuffer.left(nextHeaderPos);
-        
-        // --- Step 4: Validate the extracted packet ---
-        if (frameData.size() < metaDataSize) {
-            // The data between headers is too small to even contain metadata.
-            // This indicates a severe sync error. Discard the corrupted segment.
-            qDebug() << "[Video Sync Error] Invalid data segment between headers. Resyncing...";
-            m_videoFrameBuffer.remove(0, nextHeaderPos);
-            continue; // Continue the loop to find the next valid frame
-        }
-
-        // Parse the resolution from the metadata (located after the 4-byte header)
-        const uchar* meta = reinterpret_cast<const uchar*>(frameData.constData() + 4);
+        // --- 步骤 3: 解析并验证元数据 ---
+        const uchar* meta = reinterpret_cast<const uchar*>(m_videoFrameBuffer.constData() + 4);
         quint16 width  = (meta[0] << 8) | meta[1];
         quint16 height = (meta[2] << 8) | meta[3];
 
-        // Calculate the size of the pixel data based on metadata
-        int expectedPixelDataSize = width * height * 2; // RGB16 format (2 bytes per pixel)
-        // The actual pixel data size is the total packet size minus the metadata
-        int actualPixelDataSize = frameData.size() - metaDataSize;
-
-        // --- Step 5: The CRITICAL cross-validation check ---
-        if (expectedPixelDataSize == actualPixelDataSize && width > 0 && height > 0) {
-            // SUCCESS: The metadata matches the actual data size. This is a valid frame.
-            
-            QByteArray imageDataBytes = frameData.mid(metaDataSize);
-
-            // Correct the byte order for RGB16 display
-            for(int i = 0; i < imageDataBytes.size(); i += 2) {
-                std::swap(imageDataBytes[i], imageDataBytes[i+1]);
-            }
-
-            // Create and display the image
-            const uchar* correctedImageDataPtr = reinterpret_cast<const uchar*>(imageDataBytes.constData());
-            QImage image(correctedImageDataPtr, width, height, QImage::Format_RGB16);
-
-            if (!image.isNull()) {
-                ui->imageDisplayLabel->setPixmap(QPixmap::fromImage(image).scaled(ui->imageDisplayLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
-                
-                if (ui->displayStackedWidget->currentIndex() != 1) {
-                     ui->displayStackedWidget->setCurrentIndex(1);
-                }
-                ui->resolutionLabel->setText(QString("%1 x %2").arg(width).arg(height));
-            } else {
-                qDebug() << "[Video ERROR] QImage could not be loaded from valid frame data.";
-            }
-        } else {
-            // FAILURE: The frame is corrupt (size mismatch). Discard it and log the error.
-             qDebug() << "[Video Sync] Dropping corrupted frame. Expected size:" 
-                      << expectedPixelDataSize << ", Actual size:" << actualPixelDataSize;
+        // 对分辨率进行基础验证。如果数值无效，说明这是一个伪造的帧头
+        if (width == 0 || height == 0 || width > 4096 || height > 4096) {
+            qDebug() << "[Video Sync Error] 解析到无效分辨率 " << width << "x" << height << "，判定为伪帧头。";
+            // 丢弃这4个字节的伪帧头，然后从循环顶部重新开始寻找下一个有效帧头
+            m_videoFrameBuffer.remove(0, 4);
+            continue;
         }
 
-        // --- Step 6: Remove the processed (or discarded) frame packet ---
-        // This moves the buffer forward to the beginning of the next frame.
-        m_videoFrameBuffer.remove(0, nextHeaderPos);
+        // --- 步骤 4: 计算当前帧的预期总大小 ---
+        int expectedPixelDataSize = width * height * 2; // RGB16 格式，每像素2字节
+        int totalFrameSize = metaDataSize + expectedPixelDataSize;
+
+        // --- 步骤 5: (可选的强验证) 寻找下一个帧头来验证当前帧的边界 ---
+        int nextHeaderPos = m_videoFrameBuffer.indexOf(frameHeader, 1); // 从当前帧头的下一个字节开始搜索
+
+        if (nextHeaderPos != -1 && nextHeaderPos < totalFrameSize) {
+            // 如果在当前帧预期结束之前就找到了下一个帧头，
+            // 那么说明当前帧被截断或已损坏。
+            qDebug() << "[Video Sync] 检测到截断帧，丢弃 " << nextHeaderPos << " 字节。";
+            // 丢弃这些损坏的数据，并从下一个有效帧头开始重新同步
+            m_videoFrameBuffer.remove(0, nextHeaderPos);
+            continue;
+        }
+        
+        // --- 步骤 6: 检查缓冲区的数据是否足够构成一整个有效帧 ---
+        if (m_videoFrameBuffer.size() < totalFrameSize) {
+            // 数据还不够一整帧，等待接收更多数据
+            return;
+        }
+
+        // --- 步骤 7: 所有检查通过，提取、解码并显示图像 ---
+        QByteArray imageDataBytes = m_videoFrameBuffer.mid(metaDataSize, expectedPixelDataSize);
+
+        // 为适应RGB16格式，进行字节序交换 (高低位交换)
+        for(int i = 0; i < imageDataBytes.size(); i += 2) {
+            std::swap(imageDataBytes[i], imageDataBytes[i+1]);
+        }
+
+        const uchar* correctedImageDataPtr = reinterpret_cast<const uchar*>(imageDataBytes.constData());
+        QImage image(correctedImageDataPtr, width, height, QImage::Format_RGB16);
+
+        if (!image.isNull()) {
+            ui->imageDisplayLabel->setPixmap(QPixmap::fromImage(image).scaled(ui->imageDisplayLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            
+            if (ui->displayStackedWidget->currentIndex() != 1) {
+                 ui->displayStackedWidget->setCurrentIndex(1);
+            }
+            ui->resolutionLabel->setText(QString("%1 x %2").arg(width).arg(height));
+        } else {
+            qDebug() << "[Video ERROR] QImage无法从有效的帧数据加载图像。";
+        }
+
+        // --- 步骤 8: 从缓冲区移除已处理的帧 ---
+        m_videoFrameBuffer.remove(0, totalFrameSize);
+        // 继续循环，以处理缓冲区中可能存在的下一帧
     }
 }
 
