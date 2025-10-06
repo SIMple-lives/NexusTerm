@@ -709,86 +709,87 @@ void MainWindow::onUdpDataReceived(const QByteArray &data, const QString &sender
 
 void MainWindow::processVideoFrameBuffer() {
     static const QByteArray frameHeader("\xF0\x5A\xA5\x0F", 4);
+    static const int metaDataSize = 8; // Header(4) + Width(2) + Height(2)
 
-    // 循环处理，确保一次调用能处理完缓冲区里所有完整的帧
+    // Loop as long as there's a possibility of extracting a full frame
     while (true) {
-        // --- 步骤 1: 寻找并对齐帧头 ---
-        int headerPos = m_videoFrameBuffer.indexOf(frameHeader);
-        if (headerPos == -1) {
-            // 缓冲区里没有帧头，退出函数，等待更多数据
+        // --- Step 1: Find the start of a potential frame ---
+        int startHeaderPos = m_videoFrameBuffer.indexOf(frameHeader);
+        if (startHeaderPos == -1) {
+            // No header found, we can't do anything. Wait for more data.
             return;
         }
 
-        // 丢弃帧头前的所有无效数据，实现数据流同步
-        m_videoFrameBuffer.remove(0, headerPos);
+        // Discard any junk data before the first header we found
+        m_videoFrameBuffer.remove(0, startHeaderPos);
 
-        // --- 步骤 2: 验证元数据长度 ---
-        if (m_videoFrameBuffer.size() < 8) {
-            // 数据不足以解析出宽度和高度，退出等待
+        // --- Step 2: Find the start of the NEXT frame ---
+        // This defines the boundary of the current frame.
+        // We start searching *after* the current frame's header.
+        int nextHeaderPos = m_videoFrameBuffer.indexOf(frameHeader, frameHeader.size());
+        if (nextHeaderPos == -1) {
+            // We have the beginning of a frame, but not the end.
+            // Wait for more data to arrive.
             return;
         }
 
-        // --- 步骤 3: 解析并验证分辨率 ---
-        const uchar* meta = reinterpret_cast<const uchar*>(m_videoFrameBuffer.constData() + 4);
+        // --- Step 3: Extract the complete frame packet ---
+        // The complete data for one frame is everything between the two headers.
+        QByteArray frameData = m_videoFrameBuffer.left(nextHeaderPos);
+        
+        // --- Step 4: Validate the extracted packet ---
+        if (frameData.size() < metaDataSize) {
+            // The data between headers is too small to even contain metadata.
+            // This indicates a severe sync error. Discard the corrupted segment.
+            qDebug() << "[Video Sync Error] Invalid data segment between headers. Resyncing...";
+            m_videoFrameBuffer.remove(0, nextHeaderPos);
+            continue; // Continue the loop to find the next valid frame
+        }
+
+        // Parse the resolution from the metadata (located after the 4-byte header)
+        const uchar* meta = reinterpret_cast<const uchar*>(frameData.constData() + 4);
         quint16 width  = (meta[0] << 8) | meta[1];
         quint16 height = (meta[2] << 8) | meta[3];
 
-        if (width == 0 || height == 0 || width > 4096 || height > 4096) {
-            // 分辨率数值无效，说明这个帧头是伪造的或已损坏
-            qDebug() << "[Video Sync Error] 解析到无效分辨率: " << width << "x" << height << ". 丢弃数据并寻找下一个帧头...";
-            m_videoFrameBuffer.remove(0, 1); // 只移除1个字节，以防在同一个错误位置死循环
-            continue; // 继续外层while循环，寻找下一个有效的帧头
-        }
+        // Calculate the size of the pixel data based on metadata
+        int expectedPixelDataSize = width * height * 2; // RGB16 format (2 bytes per pixel)
+        // The actual pixel data size is the total packet size minus the metadata
+        int actualPixelDataSize = frameData.size() - metaDataSize;
 
-        // --- 步骤 4: 验证数据帧的完整性 ---
-        int singleFrameSize = width * height * 2;
-        int totalFrameSize = 8 + singleFrameSize; // 整个数据帧的大小 = 元数据 + 像素数据
-
-        if (m_videoFrameBuffer.size() < totalFrameSize) {
-            // 缓冲区的数据还不够一整帧，退出等待
-            return;
-        }
-
-        // --- 步骤 5: 最终校验，检查帧内部是否混入下一个帧头 ---
-        // 我们只检查当前帧的像素数据部分是否意外包含帧头
-        // 搜索的起始位置是当前帧头之后 (比如从第1个字节开始)
-        int nextHeaderPos = m_videoFrameBuffer.indexOf(frameHeader, 1);
-        if (nextHeaderPos != -1 && nextHeaderPos < totalFrameSize) {
-            // 在当前帧结束前就出现了下一个帧头，说明当前帧因丢包而损坏
-            qDebug() << "[Video Sync] 检测到损坏的帧，正在重新同步...";
-            m_videoFrameBuffer.remove(0, nextHeaderPos); // 丢弃损坏帧的数据
-            continue; // 继续外层while循环，处理找到的下一个帧头
-        }
-
-        // --- 所有检查通过，解码并显示图像 ---
-        QByteArray imageDataBytes = m_videoFrameBuffer.mid(8, singleFrameSize);
-
-        // 修正字节序
-        for(int i = 0; i < imageDataBytes.size(); i += 2) {
-            std::swap(imageDataBytes[i], imageDataBytes[i+1]);
-        }
-
-        const uchar* correctedImageDataPtr = reinterpret_cast<const uchar*>(imageDataBytes.constData());
-        QImage image(correctedImageDataPtr, width, height, QImage::Format_RGB16);
-
-        if (!image.isNull()) {
-            QPixmap pixmap = QPixmap::fromImage(image);
+        // --- Step 5: The CRITICAL cross-validation check ---
+        if (expectedPixelDataSize == actualPixelDataSize && width > 0 && height > 0) {
+            // SUCCESS: The metadata matches the actual data size. This is a valid frame.
             
-            // 绘制前清空，防止UI残留
-            ui->imageDisplayLabel->clear();
-            ui->imageDisplayLabel->setPixmap(pixmap.scaled(ui->imageDisplayLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
-            
-            // 确保显示的是图像页面
-            if (ui->displayStackedWidget->currentIndex() != 1) {
-                 ui->displayStackedWidget->setCurrentIndex(1);
+            QByteArray imageDataBytes = frameData.mid(metaDataSize);
+
+            // Correct the byte order for RGB16 display
+            for(int i = 0; i < imageDataBytes.size(); i += 2) {
+                std::swap(imageDataBytes[i], imageDataBytes[i+1]);
             }
-            ui->resolutionLabel->setText(QString("%1 x %2").arg(width).arg(height));
+
+            // Create and display the image
+            const uchar* correctedImageDataPtr = reinterpret_cast<const uchar*>(imageDataBytes.constData());
+            QImage image(correctedImageDataPtr, width, height, QImage::Format_RGB16);
+
+            if (!image.isNull()) {
+                ui->imageDisplayLabel->setPixmap(QPixmap::fromImage(image).scaled(ui->imageDisplayLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+                
+                if (ui->displayStackedWidget->currentIndex() != 1) {
+                     ui->displayStackedWidget->setCurrentIndex(1);
+                }
+                ui->resolutionLabel->setText(QString("%1 x %2").arg(width).arg(height));
+            } else {
+                qDebug() << "[Video ERROR] QImage could not be loaded from valid frame data.";
+            }
         } else {
-            qDebug() << "[Video ERROR] QImage无法从数据加载。";
+            // FAILURE: The frame is corrupt (size mismatch). Discard it and log the error.
+             qDebug() << "[Video Sync] Dropping corrupted frame. Expected size:" 
+                      << expectedPixelDataSize << ", Actual size:" << actualPixelDataSize;
         }
 
-        // 从缓冲区移除已处理的完整帧
-        m_videoFrameBuffer.remove(0, totalFrameSize);
+        // --- Step 6: Remove the processed (or discarded) frame packet ---
+        // This moves the buffer forward to the beginning of the next frame.
+        m_videoFrameBuffer.remove(0, nextHeaderPos);
     }
 }
 
