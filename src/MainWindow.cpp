@@ -710,71 +710,67 @@ void MainWindow::onUdpDataReceived(const QByteArray &data, const QString &sender
 void MainWindow::processVideoFrameBuffer() {
     static const QByteArray frameHeader("\xF0\x5A\xA5\x0F", 4);
 
-    // Loop continuously as long as there's data, as one packet might contain multiple frames.
     while (true) {
-        // 1. Find the next frame header in the buffer.
-        int headerPos = m_videoFrameBuffer.indexOf(frameHeader);
+        // ### THE FIX IS ON THIS LINE ###
+        // Change indexOf to lastIndexOf to prioritize the most recent frame.
+        int headerPos = m_videoFrameBuffer.lastIndexOf(frameHeader);
+
         if (headerPos == -1) {
-            // No complete header found, wait for more data.
+            // No header found, wait for more data.
             break;
         }
 
-        // 2. Discard any invalid data before the header (resynchronize).
+        // Discard any data before the header (stale/partial frames).
         m_videoFrameBuffer.remove(0, headerPos);
 
-        // 3. Check if we have enough data for the header and metadata (width/height).
+        // Check if we have enough data for the header and metadata (width/height).
         if (m_videoFrameBuffer.size() < 8) { // Header(4) + Width(2) + Height(2) = 8
-            // Not enough data for metadata yet, wait for more.
             break;
         }
 
-        // 4. Parse width and height from the data following the header.
+        // Parse width and height from the data following the header.
         const uchar* meta = reinterpret_cast<const uchar*>(m_videoFrameBuffer.constData() + 4);
         quint16 width  = (meta[0] << 8) | meta[1];
         quint16 height = (meta[2] << 8) | meta[3];
 
-        // 5. Validate the parsed resolution.
+        // Validate the parsed resolution.
         if (width == 0 || height == 0 || width > 4096 || height > 4096) {
-            // Invalid dimensions suggest this was a false header. Discard the first byte
-            // of the bad header and search again in the next iteration.
             qDebug() << "[Video Sync] Invalid resolution " << width << "x" << height << ". Re-syncing.";
             m_videoFrameBuffer.remove(0, 1);
-            continue; // Continue to the next loop iteration to find the next valid header.
+            continue;
         }
         
-        // Update the member variables with the new, valid resolution for this frame.
         m_videoStreamWidth = width;
         m_videoStreamHeight = height;
 
-        // 6. Calculate the size of a full frame and check if we have received it all.
+        // Calculate the size of a full frame and check if we have received it all.
         int singleFrameSize = m_videoStreamWidth * m_videoStreamHeight * 2; // RGB565 is 2 bytes per pixel
         if (m_videoFrameBuffer.size() < (8 + singleFrameSize)) {
-            // We have the header but not the full frame data yet. Wait for more.
             break;
         }
 
-        // 7. Extract the image data for this single frame.
+        // Extract the image data for this single frame.
         QByteArray imageDataBytes = m_videoFrameBuffer.mid(8, singleFrameSize);
 
-        // 8. Correct the byte order (endianness) for RGB565 format.
+        // Correct the byte order (endianness) for RGB565 format.
         for(int i = 0; i < imageDataBytes.size(); i += 2) {
             std::swap(imageDataBytes[i], imageDataBytes[i+1]);
         }
         
-        // 9. Create and display the QImage.
+        // Create and display the QImage.
         const uchar* correctedImageDataPtr = reinterpret_cast<const uchar*>(imageDataBytes.constData());
         QImage image(correctedImageDataPtr, m_videoStreamWidth, m_videoStreamHeight, QImage::Format_RGB16);
 
         if (!image.isNull()) {
             QPixmap pixmap = QPixmap::fromImage(image); 
             ui->imageDisplayLabel->setPixmap(pixmap.scaled(ui->imageDisplayLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
-            ui->displayStackedWidget->setCurrentIndex(1); // Ensure image page is visible [cite: 91]
+            ui->displayStackedWidget->setCurrentIndex(1);
             ui->resolutionLabel->setText(QString("%1 x %2").arg(m_videoStreamWidth).arg(m_videoStreamHeight));
         } else {
             qDebug() << "[Video ERROR] QImage failed to load from data.";
         }
 
-        // 10. Remove the header and the frame data we just processed from the buffer.
+        // Remove the header and the frame data we just processed from the buffer.
         m_videoFrameBuffer.remove(0, 8 + singleFrameSize);
     }
 }
