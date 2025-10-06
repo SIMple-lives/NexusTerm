@@ -710,107 +710,85 @@ void MainWindow::onUdpDataReceived(const QByteArray &data, const QString &sender
 void MainWindow::processVideoFrameBuffer() {
     static const QByteArray frameHeader("\xF0\x5A\xA5\x0F", 4);
 
+    // 循环处理，确保一次调用能处理完缓冲区里所有完整的帧
     while (true) {
-        // ======================================================================
-        // 状态一：寻找帧头 (当 m_videoHeaderReceived 为 false 时)
-        // ======================================================================
-        if (!m_videoHeaderReceived) {
-            int headerPos = m_videoFrameBuffer.indexOf(frameHeader);
-            if (headerPos == -1) {
-                return; // 缓冲区无帧头，等待更多数据
-            }
+        // --- 步骤 1: 寻找并对齐帧头 ---
+        int headerPos = m_videoFrameBuffer.indexOf(frameHeader);
+        if (headerPos == -1) {
+            // 缓冲区里没有帧头，退出函数，等待更多数据
+            return;
+        }
 
-            // 丢弃帧头前的所有无效数据
-            if (headerPos > 0) {
-                m_videoFrameBuffer.remove(0, headerPos);
-            }
+        // 丢弃帧头前的所有无效数据，实现数据流同步
+        m_videoFrameBuffer.remove(0, headerPos);
 
-            // 检查数据长度是否足够解析出完整的元数据（帧头+宽度+高度）
-            if (m_videoFrameBuffer.size() < 8) { // FrameHeader(4) + Width(2) + Height(2) = 8
-                return; // 元数据不完整，等待下一个数据包
-            }
+        // --- 步骤 2: 验证元数据长度 ---
+        if (m_videoFrameBuffer.size() < 8) {
+            // 数据不足以解析出宽度和高度，退出等待
+            return;
+        }
 
-            // 解析宽度和高度 (大端序)
-            const uchar* meta = reinterpret_cast<const uchar*>(m_videoFrameBuffer.constData() + 4);
-            quint16 width  = (meta[0] << 8) | meta[1];
-            quint16 height = (meta[2] << 8) | meta[3];
+        // --- 步骤 3: 解析并验证分辨率 ---
+        const uchar* meta = reinterpret_cast<const uchar*>(m_videoFrameBuffer.constData() + 4);
+        quint16 width  = (meta[0] << 8) | meta[1];
+        quint16 height = (meta[2] << 8) | meta[3];
 
-            // 对分辨率进行有效性检查
-            if (width == 0 || height == 0 || width > 4096 || height > 4096) {
-                qDebug() << "[Video ERROR] 解析到无效的分辨率:" << width << "x" << height << ". 正在重新同步...";
-                m_videoFrameBuffer.remove(0, 1); // 丢弃1字节，避免在同一个错误帧头上死循环
-                continue; // 继续下一次循环，尝试寻找下一个有效的帧头
-            }
+        if (width == 0 || height == 0 || width > 4096 || height > 4096) {
+            // 分辨率数值无效，说明这个帧头是伪造的或已损坏
+            qDebug() << "[Video Sync Error] 解析到无效分辨率: " << width << "x" << height << ". 丢弃数据并寻找下一个帧头...";
+            m_videoFrameBuffer.remove(0, 1); // 只移除1个字节，以防在同一个错误位置死循环
+            continue; // 继续外层while循环，寻找下一个有效的帧头
+        }
 
-            // 成功解析！保存分辨率，并切换到“收集数据”状态
-            m_videoStreamWidth = width;
-            m_videoStreamHeight = height;
-            m_videoHeaderReceived = true;
+        // --- 步骤 4: 验证数据帧的完整性 ---
+        int singleFrameSize = width * height * 2;
+        int totalFrameSize = 8 + singleFrameSize; // 整个数据帧的大小 = 元数据 + 像素数据
+
+        if (m_videoFrameBuffer.size() < totalFrameSize) {
+            // 缓冲区的数据还不够一整帧，退出等待
+            return;
+        }
+
+        // --- 步骤 5: 最终校验，检查帧内部是否混入下一个帧头 ---
+        // 我们只检查当前帧的像素数据部分是否意外包含帧头
+        // 搜索的起始位置是当前帧头之后 (比如从第1个字节开始)
+        int nextHeaderPos = m_videoFrameBuffer.indexOf(frameHeader, 1);
+        if (nextHeaderPos != -1 && nextHeaderPos < totalFrameSize) {
+            // 在当前帧结束前就出现了下一个帧头，说明当前帧因丢包而损坏
+            qDebug() << "[Video Sync] 检测到损坏的帧，正在重新同步...";
+            m_videoFrameBuffer.remove(0, nextHeaderPos); // 丢弃损坏帧的数据
+            continue; // 继续外层while循环，处理找到的下一个帧头
+        }
+
+        // --- 所有检查通过，解码并显示图像 ---
+        QByteArray imageDataBytes = m_videoFrameBuffer.mid(8, singleFrameSize);
+
+        // 修正字节序
+        for(int i = 0; i < imageDataBytes.size(); i += 2) {
+            std::swap(imageDataBytes[i], imageDataBytes[i+1]);
+        }
+
+        const uchar* correctedImageDataPtr = reinterpret_cast<const uchar*>(imageDataBytes.constData());
+        QImage image(correctedImageDataPtr, width, height, QImage::Format_RGB16);
+
+        if (!image.isNull()) {
+            QPixmap pixmap = QPixmap::fromImage(image);
             
-            qDebug() << "[Video Stream] 帧头已接收. 分辨率设置为" << m_videoStreamWidth << "x" << m_videoStreamHeight;
-
-            // 从缓冲区移除已处理的8字节元数据
-            m_videoFrameBuffer.remove(0, 8);
+            // 绘制前清空，防止UI残留
+            ui->imageDisplayLabel->clear();
+            ui->imageDisplayLabel->setPixmap(pixmap.scaled(ui->imageDisplayLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            
+            // 确保显示的是图像页面
+            if (ui->displayStackedWidget->currentIndex() != 1) {
+                 ui->displayStackedWidget->setCurrentIndex(1);
+            }
+            ui->resolutionLabel->setText(QString("%1 x %2").arg(width).arg(height));
+        } else {
+            qDebug() << "[Video ERROR] QImage无法从数据加载。";
         }
 
-        // ======================================================================
-        // 状态二：收集并处理一帧的完整图像数据 (当 m_videoHeaderReceived 为 true 时)
-        // ======================================================================
-        if (m_videoHeaderReceived) {
-            int singleFrameSize = m_videoStreamWidth * m_videoStreamHeight * 2;
-            if (singleFrameSize == 0) {
-                m_videoHeaderReceived = false; // 分辨率无效，重置状态
-                return;
-            }
-
-            // 检查缓冲区的数据是否已经足够一帧
-            if (m_videoFrameBuffer.size() >= singleFrameSize) {
-                // --- 数据已足够，处理完整的一帧 ---
-
-                // 从缓冲区头部提取一帧完整的图像数据
-                QByteArray imageDataBytes = m_videoFrameBuffer.left(singleFrameSize);
-
-                // 修正字节序（高低位交换），解决彩色噪点问题
-                for(int i = 0; i < imageDataBytes.size(); i += 2) {
-                    std::swap(imageDataBytes[i], imageDataBytes[i+1]);
-                }
-
-                const uchar* correctedImageDataPtr = reinterpret_cast<const uchar*>(imageDataBytes.constData());
-                QImage image(correctedImageDataPtr, m_videoStreamWidth, m_videoStreamHeight, QImage::Format_RGB16);
-
-                if (!image.isNull()) {
-                    QPixmap pixmap = QPixmap::fromImage(image);
-                    
-                    // 先清空再显示，避免残留
-                    ui->imageDisplayLabel->clear();
-                    ui->imageDisplayLabel->setPixmap(pixmap.scaled(ui->imageDisplayLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
-                    ui->displayStackedWidget->setCurrentIndex(1);
-                    ui->resolutionLabel->setText(QString("%1 x %2").arg(m_videoStreamWidth).arg(m_videoStreamHeight));
-                } else {
-                    qDebug() << "[Video ERROR] QImage无法从数据加载图像。";
-                }
-
-                // 从缓冲区移除已处理的这一帧数据
-                m_videoFrameBuffer.remove(0, singleFrameSize);
-                
-                // 重置状态机，准备寻找下一帧的帧头
-                m_videoHeaderReceived = false;
-
-            } else {
-                // --- 数据还不够一帧，检查是否有丢包（提前出现下一帧的帧头）---
-                int nextHeaderPos = m_videoFrameBuffer.indexOf(frameHeader);
-                if (nextHeaderPos != -1) {
-                    // 下一帧的帧头提前出现，说明当前帧不完整
-                    qDebug() << "[Video Sync] 检测到不完整的帧 (丢包), 正在丢弃并重新同步...";
-                    m_videoFrameBuffer.remove(0, nextHeaderPos); // 丢弃当前不完整帧的数据
-                    m_videoHeaderReceived = false;               // 重置状态机，去解析下一个有效的帧头
-                    // 这里不continue，让下一次循环来处理
-                } else {
-                    // 数据不完整，且没有新帧头，正常等待更多数据
-                    return;
-                }
-            }
-        }
+        // 从缓冲区移除已处理的完整帧
+        m_videoFrameBuffer.remove(0, totalFrameSize);
     }
 }
 
