@@ -129,6 +129,12 @@ private:
     // UDP视频流相关
     bool m_isUdpStreaming;
     QByteArray m_videoFrameBuffer;
+    // ===== 新增的成员变量 =====
+    bool m_videoHeaderReceived; // 标志位，用于判断是否已收到帧头
+    quint16 m_videoStreamWidth;   // 从流中解析出的视频宽度
+    quint16 m_videoStreamHeight;  // 从流中解析出的视频高度
+    // ===== 结束新增 =====
+
 
     // 单帧测试相关
     int m_framesToSkip;         // 目标跳过的帧数
