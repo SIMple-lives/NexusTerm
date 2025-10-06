@@ -710,32 +710,46 @@ void MainWindow::onUdpDataReceived(const QByteArray &data, const QString &sender
 void MainWindow::processVideoFrameBuffer() {
     static const QByteArray frameHeader("\xF0\x5A\xA5\x0F", 4);
 
-    while (true) {
-        // ### THE FIX IS ON THIS LINE ###
-        // Change indexOf to lastIndexOf to prioritize the most recent frame.
-        int headerPos = m_videoFrameBuffer.lastIndexOf(frameHeader);
+    // =====================================================================
+    //  Anti-Lag / Buffer Bloat Prevention
+    // =====================================================================
+    // If we have previously received a frame, we know its size.
+    // If the buffer grows much larger than a single frame (e.g., >2x),
+    // it means we are lagging. We must discard old data to catch up.
+    if (m_videoStreamWidth > 0 && m_videoStreamHeight > 0) {
+        int singleFrameSize = m_videoStreamWidth * m_videoStreamHeight * 2;
+        // If buffer is larger than 2 frames, it indicates a significant lag.
+        if (singleFrameSize > 0 && m_videoFrameBuffer.size() > (singleFrameSize * 2)) {
+            // Find the last header to sync to the newest available frame data.
+            int lastHeaderPos = m_videoFrameBuffer.lastIndexOf(frameHeader);
+            if (lastHeaderPos > 0) {
+                qDebug() << "[Video Sync] Lag detected. Buffer size is" << m_videoFrameBuffer.size() << "bytes. Discarding" << lastHeaderPos << "stale bytes.";
+                // Discard all stale data before the last header.
+                m_videoFrameBuffer.remove(0, lastHeaderPos);
+            }
+        }
+    }
+    // =====================================================================
 
+    // We now proceed with the reliable indexOf logic to assemble frames.
+    while (true) {
+        // Find the FIRST header in the (potentially cleaned) buffer.
+        int headerPos = m_videoFrameBuffer.indexOf(frameHeader);
         if (headerPos == -1) {
-            // No header found, wait for more data.
             break;
         }
-
-        // Discard any data before the header (stale/partial frames).
+        
         m_videoFrameBuffer.remove(0, headerPos);
 
-        // Check if we have enough data for the header and metadata (width/height).
-        if (m_videoFrameBuffer.size() < 8) { // Header(4) + Width(2) + Height(2) = 8
+        if (m_videoFrameBuffer.size() < 8) {
             break;
         }
 
-        // Parse width and height from the data following the header.
         const uchar* meta = reinterpret_cast<const uchar*>(m_videoFrameBuffer.constData() + 4);
         quint16 width  = (meta[0] << 8) | meta[1];
         quint16 height = (meta[2] << 8) | meta[3];
 
-        // Validate the parsed resolution.
         if (width == 0 || height == 0 || width > 4096 || height > 4096) {
-            qDebug() << "[Video Sync] Invalid resolution " << width << "x" << height << ". Re-syncing.";
             m_videoFrameBuffer.remove(0, 1);
             continue;
         }
@@ -743,21 +757,17 @@ void MainWindow::processVideoFrameBuffer() {
         m_videoStreamWidth = width;
         m_videoStreamHeight = height;
 
-        // Calculate the size of a full frame and check if we have received it all.
-        int singleFrameSize = m_videoStreamWidth * m_videoStreamHeight * 2; // RGB565 is 2 bytes per pixel
+        int singleFrameSize = m_videoStreamWidth * m_videoStreamHeight * 2;
         if (m_videoFrameBuffer.size() < (8 + singleFrameSize)) {
             break;
         }
 
-        // Extract the image data for this single frame.
         QByteArray imageDataBytes = m_videoFrameBuffer.mid(8, singleFrameSize);
 
-        // Correct the byte order (endianness) for RGB565 format.
         for(int i = 0; i < imageDataBytes.size(); i += 2) {
             std::swap(imageDataBytes[i], imageDataBytes[i+1]);
         }
         
-        // Create and display the QImage.
         const uchar* correctedImageDataPtr = reinterpret_cast<const uchar*>(imageDataBytes.constData());
         QImage image(correctedImageDataPtr, m_videoStreamWidth, m_videoStreamHeight, QImage::Format_RGB16);
 
@@ -770,7 +780,6 @@ void MainWindow::processVideoFrameBuffer() {
             qDebug() << "[Video ERROR] QImage failed to load from data.";
         }
 
-        // Remove the header and the frame data we just processed from the buffer.
         m_videoFrameBuffer.remove(0, 8 + singleFrameSize);
     }
 }
