@@ -709,7 +709,7 @@ void MainWindow::onUdpDataReceived(const QByteArray &data, const QString &sender
 
 void MainWindow::processVideoFrameBuffer() {
     static const QByteArray frameHeader("\xF0\x5A\xA5\x0F", 4);
-    static const int metaDataSize = 8; // Header(4) + Width(2) + Height(2)
+    static const int metaDataSize = 8; // 帧头(4字节) + 宽度(2字节) + 高度(2字节)
 
     // 循环处理，确保缓冲区内的所有完整帧都被处理
     while (true) {
@@ -733,9 +733,9 @@ void MainWindow::processVideoFrameBuffer() {
         quint16 width  = (meta[0] << 8) | meta[1];
         quint16 height = (meta[2] << 8) | meta[3];
 
-        // 对分辨率进行基础验证。如果数值无效，说明这是一个伪造的帧头
+        // 对分辨率进行基础验证。如果数值无效或过大，则判定这是一个伪造的/损坏的帧头
         if (width == 0 || height == 0 || width > 4096 || height > 4096) {
-            qDebug() << "[Video Sync Error] 解析到无效分辨率 " << width << "x" << height << "，判定为伪帧头。";
+            qDebug() << "[Video Sync Error] 解析到无效分辨率 " << width << "x" << height << "，判定为伪帧头，正在重新同步...";
             // 丢弃这4个字节的伪帧头，然后从循环顶部重新开始寻找下一个有效帧头
             m_videoFrameBuffer.remove(0, 4);
             continue;
@@ -745,16 +745,17 @@ void MainWindow::processVideoFrameBuffer() {
         int expectedPixelDataSize = width * height * 2; // RGB16 格式，每像素2字节
         int totalFrameSize = metaDataSize + expectedPixelDataSize;
 
-        // --- 步骤 5: (可选的强验证) 寻找下一个帧头来验证当前帧的边界 ---
-        int nextHeaderPos = m_videoFrameBuffer.indexOf(frameHeader, 1); // 从当前帧头的下一个字节开始搜索
-
+        // --- 步骤 5 (防闪烁核心): 检查当前帧内部是否混入了下一个帧头 ---
+        // 我们只检查当前帧的像素数据部分是否意外包含帧头
+        // 搜索的起始位置是当前帧头之后 (比如从第1个字节开始)
+        int nextHeaderPos = m_videoFrameBuffer.indexOf(frameHeader, 1);
         if (nextHeaderPos != -1 && nextHeaderPos < totalFrameSize) {
-            // 如果在当前帧预期结束之前就找到了下一个帧头，
-            // 那么说明当前帧被截断或已损坏。
-            qDebug() << "[Video Sync] 检测到截断帧，丢弃 " << nextHeaderPos << " 字节。";
-            // 丢弃这些损坏的数据，并从下一个有效帧头开始重新同步
+            // 在当前帧预期结束之前就找到了下一个帧头，
+            // 说明当前帧因丢包而损坏或被截断。
+            qDebug() << "[Video Sync] 检测到损坏的帧，丢弃 " << nextHeaderPos << " 字节并重新同步...";
+            // 丢弃这些损坏的数据，并从下一个有效帧头开始处理
             m_videoFrameBuffer.remove(0, nextHeaderPos);
-            continue;
+            continue; // 继续外层while循环
         }
         
         // --- 步骤 6: 检查缓冲区的数据是否足够构成一整个有效帧 ---
