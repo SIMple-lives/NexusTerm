@@ -768,6 +768,18 @@ void MainWindow::processVideoFrameBuffer() {
                 m_videoHeaderReceived = false; // 分辨率无效，重置状态
                 return;
             }
+            
+            // ====================== 新增修复逻辑 (START) ======================
+            // 在检查数据是否足够前，先检查缓冲区内是否提前出现了下一个帧头
+            // 这可以有效检测到因丢包导致当前帧不完整的情况
+            int nextHeaderPos = m_videoFrameBuffer.indexOf(frameHeader);
+            if (nextHeaderPos != -1 && nextHeaderPos < singleFrameSize) {
+                qDebug() << "[Video Sync] 检测到不完整的帧 (丢包), 正在丢弃并重新同步...";
+                m_videoFrameBuffer.remove(0, nextHeaderPos); // 丢弃当前不完整帧的数据
+                m_videoHeaderReceived = false;               // 重置状态机，去解析下一个有效的帧头
+                continue;                                    // 重新开始循环
+            }
+            // ====================== 新增修复逻辑 (END) ========================
 
             // 2. 检查缓冲区的数据是否已经足够一帧
             if (m_videoFrameBuffer.size() < singleFrameSize) {
@@ -789,6 +801,11 @@ void MainWindow::processVideoFrameBuffer() {
             if (!image.isNull()) {
                 QPixmap pixmap = QPixmap::fromImage(image); 
                 
+                // ====================== 新增修复逻辑 (START) ======================
+                // 在设置新图像前先清空，防止因图像损坏导致的残留
+                ui->imageDisplayLabel->clear();
+                // ====================== 新增修复逻辑 (END) ========================
+
                 ui->imageDisplayLabel->setPixmap(pixmap.scaled(ui->imageDisplayLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
                 ui->displayStackedWidget->setCurrentIndex(1); // 确保图像页面是可见的
                 ui->resolutionLabel->setText(QString("%1 x %2").arg(m_videoStreamWidth).arg(m_videoStreamHeight));
