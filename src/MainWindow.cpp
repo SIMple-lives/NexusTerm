@@ -708,88 +708,74 @@ void MainWindow::onUdpDataReceived(const QByteArray &data, const QString &sender
 // ##########################################################################
 
 void MainWindow::processVideoFrameBuffer() {
-    // 检查是否已经接收并解析过帧头
-    if (!m_videoHeaderReceived) {
-        // --- 状态一：寻找并解析帧头 ---
-        static const QByteArray frameHeader("\xF0\x5A\xA5\x0F", 4);
+    static const QByteArray frameHeader("\xF0\x5A\xA5\x0F", 4);
 
-        // 1. 在缓冲区中查找帧头
+    // Loop continuously as long as there's data, as one packet might contain multiple frames.
+    while (true) {
+        // 1. Find the next frame header in the buffer.
         int headerPos = m_videoFrameBuffer.indexOf(frameHeader);
         if (headerPos == -1) {
-            // 没找到帧头，可能数据还不完整，直接返回等待更多数据
-            return;
+            // No complete header found, wait for more data.
+            break;
         }
 
-        // 2. 丢弃帧头前的所有无效数据
-        if (headerPos > 0) {
-            qDebug() << "[Video Sync] Discarding" << headerPos << "bytes of invalid data before header.";
-            m_videoFrameBuffer.remove(0, headerPos);
+        // 2. Discard any invalid data before the header (resynchronize).
+        m_videoFrameBuffer.remove(0, headerPos);
+
+        // 3. Check if we have enough data for the header and metadata (width/height).
+        if (m_videoFrameBuffer.size() < 8) { // Header(4) + Width(2) + Height(2) = 8
+            // Not enough data for metadata yet, wait for more.
+            break;
         }
 
-        // 3. 检查数据长度是否足够解析出元数据（宽度和高度）
-        if (m_videoFrameBuffer.size() < 8) { // FrameHeader(4) + Width(2) + Height(2) = 8
-            return; // 数据不够，返回等待
-        }
-        
-        // 4. 解析宽度和高度 (大端序)
+        // 4. Parse width and height from the data following the header.
         const uchar* meta = reinterpret_cast<const uchar*>(m_videoFrameBuffer.constData() + 4);
         quint16 width  = (meta[0] << 8) | meta[1];
         quint16 height = (meta[2] << 8) | meta[3];
 
-        // 5. 对分辨率进行有效性检查
+        // 5. Validate the parsed resolution.
         if (width == 0 || height == 0 || width > 4096 || height > 4096) {
-            qDebug() << "[Video ERROR] Parsed invalid resolution:" << width << "x" << height << ". Discarding invalid header.";
-            m_videoFrameBuffer.remove(0, 1); // 丢弃一个字节，下次重新搜索
-            return;
+            // Invalid dimensions suggest this was a false header. Discard the first byte
+            // of the bad header and search again in the next iteration.
+            qDebug() << "[Video Sync] Invalid resolution " << width << "x" << height << ". Re-syncing.";
+            m_videoFrameBuffer.remove(0, 1);
+            continue; // Continue to the next loop iteration to find the next valid header.
         }
         
-        // 6. 成功解析！保存分辨率，并设置标志位
+        // Update the member variables with the new, valid resolution for this frame.
         m_videoStreamWidth = width;
         m_videoStreamHeight = height;
-        m_videoHeaderReceived = true;
-        
-        qDebug() << "[Video Stream] Header received. Resolution set to" << m_videoStreamWidth << "x" << m_videoStreamHeight;
 
-        // 7. 从缓冲区移除已处理的帧头和元数据
-        m_videoFrameBuffer.remove(0, 8);
-    }
+        // 6. Calculate the size of a full frame and check if we have received it all.
+        int singleFrameSize = m_videoStreamWidth * m_videoStreamHeight * 2; // RGB565 is 2 bytes per pixel
+        if (m_videoFrameBuffer.size() < (8 + singleFrameSize)) {
+            // We have the header but not the full frame data yet. Wait for more.
+            break;
+        }
 
-    // --- 状态二：处理连续的像素数据流 ---
-    // 确保我们已经获取了有效的分辨率
-    if (!m_videoHeaderReceived || m_videoStreamWidth == 0 || m_videoStreamHeight == 0) {
-        return;
-    }
+        // 7. Extract the image data for this single frame.
+        QByteArray imageDataBytes = m_videoFrameBuffer.mid(8, singleFrameSize);
 
-    // 计算一帧图像所需的字节数
-    int singleFrameSize = m_videoStreamWidth * m_videoStreamHeight * 2; // RGB565, 2 bytes per pixel
-    if (singleFrameSize == 0) return;
-
-    // 循环处理，直到缓冲区的数据不足一帧
-    while (m_videoFrameBuffer.size() >= singleFrameSize) {
-        // 1. 从缓冲区头部提取一帧完整的图像数据
-        QByteArray imageDataBytes = m_videoFrameBuffer.left(singleFrameSize);
-        
-        // 2. 修正字节序，解决彩色噪点问题
+        // 8. Correct the byte order (endianness) for RGB565 format.
         for(int i = 0; i < imageDataBytes.size(); i += 2) {
             std::swap(imageDataBytes[i], imageDataBytes[i+1]);
         }
         
-        // 3. 创建 QImage 并渲染
+        // 9. Create and display the QImage.
         const uchar* correctedImageDataPtr = reinterpret_cast<const uchar*>(imageDataBytes.constData());
         QImage image(correctedImageDataPtr, m_videoStreamWidth, m_videoStreamHeight, QImage::Format_RGB16);
 
         if (!image.isNull()) {
             QPixmap pixmap = QPixmap::fromImage(image); 
-            
             ui->imageDisplayLabel->setPixmap(pixmap.scaled(ui->imageDisplayLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
-            ui->displayStackedWidget->setCurrentIndex(1);
+            ui->displayStackedWidget->setCurrentIndex(1); // Ensure image page is visible [cite: 91]
             ui->resolutionLabel->setText(QString("%1 x %2").arg(m_videoStreamWidth).arg(m_videoStreamHeight));
         } else {
             qDebug() << "[Video ERROR] QImage failed to load from data.";
         }
 
-        // 4. 从缓冲区移除已处理的这一帧数据
-        m_videoFrameBuffer.remove(0, singleFrameSize);
+        // 10. Remove the header and the frame data we just processed from the buffer.
+        m_videoFrameBuffer.remove(0, 8 + singleFrameSize);
     }
 }
 
