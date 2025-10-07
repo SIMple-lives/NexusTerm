@@ -4,9 +4,10 @@
 #include <QMainWindow>
 #include <QLabel>
 #include <QDateTime>
+#include <memory> // <--- 新增: 包含智能指针头文件
 #include "SerialManager.h"
 #include "TcpManager.h"
-#include "IUdpManager.h"      // <--- 修改: 包含抽象接口
+#include "IUdpManager.h"
 #include "TcpServerManager.h"
 
 #include <QMediaPlayer>
@@ -92,11 +93,12 @@ private:
 private:
     Ui::MainWindow *ui;
 
-    // 通信管理器
-    SerialManager *m_serialManager;
-    TcpManager *m_tcpManager;
-    IUdpManager *m_udpManager; // <--- 修改: 将类型改为接口指针
-    TcpServerManager *m_tcpServerManager;
+    // --- 修改: 将通信管理器类型改为 std::unique_ptr ---
+    std::unique_ptr<SerialManager> m_serialManager;
+    std::unique_ptr<TcpManager> m_tcpManager;
+    std::unique_ptr<IUdpManager> m_udpManager;
+    std::unique_ptr<TcpServerManager> m_tcpServerManager;
+    // --- 结束修改 ---
 
     // 媒体播放器
     QMediaPlayer *m_mediaPlayer;

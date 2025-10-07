@@ -16,6 +16,7 @@
 #include <QListWidget>
 #include <QDataStream>
 #include <QDebug>
+#include <memory> // 确保包含了 memory 头文件
 
 // ===== 新增引用 =====
 #include "QtUdpManager.h"
@@ -31,6 +32,12 @@
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
+    // --- 修改: 初始化智能指针 ---
+    , m_serialManager(std::make_unique<SerialManager>(this))
+    , m_tcpManager(std::make_unique<TcpManager>(this))
+    , m_udpManager(nullptr) // UDP管理器在连接时才创建，先置空
+    , m_tcpServerManager(std::make_unique<TcpServerManager>(this))
+    // --- 结束修改 ---
     , m_mediaPlayer(nullptr)
     , m_tempMediaFile(nullptr)
     , m_rxBytes(0)
@@ -38,20 +45,13 @@ MainWindow::MainWindow(QWidget *parent)
     , m_lastUdpSenderPort(0)
     , m_fileSendOffset(0)
     , m_isUdpStreaming(false)
-    // ===== 修改/新增下面的初始化 =====
-    , m_udpManager(nullptr)        // 初始化为 nullptr
-    , m_videoHeaderReceived(false) // 初始化为 false
-    , m_videoStreamWidth(0)        // 初始化为 0
-    , m_videoStreamHeight(0)       // 初始化为 0
-    // ===== 结束修改 =====
+    , m_videoHeaderReceived(false)
+    , m_videoStreamWidth(0)
+    , m_videoStreamHeight(0)
     , m_framesToSkip(0)
     , m_processedFrameCount(0)
 {
     ui->setupUi(this);
-    m_serialManager = new SerialManager(this);
-    m_tcpManager = new TcpManager(this);
-    // m_udpManager 在点击连接时再创建
-    m_tcpServerManager = new TcpServerManager(this);
 
     m_mediaPlayer = new QMediaPlayer(this);
     m_mediaPlayer->setVideoOutput(ui->videoDisplayWidget);
@@ -62,22 +62,22 @@ MainWindow::MainWindow(QWidget *parent)
     initUI();
 
     // --- 连接信号和槽 ---
-    connect(m_serialManager, &SerialManager::dataReceived, this, &MainWindow::onSerialDataReceived);
-    connect(m_serialManager, &SerialManager::portOpened, this, &MainWindow::onPortOpened);
-    connect(m_serialManager, &SerialManager::portClosed, this, &MainWindow::onPortClosed);
-    connect(m_serialManager, &SerialManager::errorOccurred, this, &MainWindow::onPortError);
+    connect(m_serialManager.get(), &SerialManager::dataReceived, this, &MainWindow::onSerialDataReceived);
+    connect(m_serialManager.get(), &SerialManager::portOpened, this, &MainWindow::onPortOpened);
+    connect(m_serialManager.get(), &SerialManager::portClosed, this, &MainWindow::onPortClosed);
+    connect(m_serialManager.get(), &SerialManager::errorOccurred, this, &MainWindow::onPortError);
 
-    connect(m_tcpManager, &TcpManager::connected, this, &MainWindow::onTcpConnected);
-    connect(m_tcpManager, &TcpManager::disconnected, this, &MainWindow::onTcpDisconnected);
-    connect(m_tcpManager, &TcpManager::dataReceived, this, &MainWindow::onTcpDataReceived);
-    connect(m_tcpManager, &TcpManager::errorOccurred, this, &MainWindow::onTcpError);
+    connect(m_tcpManager.get(), &TcpManager::connected, this, &MainWindow::onTcpConnected);
+    connect(m_tcpManager.get(), &TcpManager::disconnected, this, &MainWindow::onTcpDisconnected);
+    connect(m_tcpManager.get(), &TcpManager::dataReceived, this, &MainWindow::onTcpDataReceived);
+    connect(m_tcpManager.get(), &TcpManager::errorOccurred, this, &MainWindow::onTcpError);
 
     // UDP 管理器的信号槽在创建实例时再连接
 
-    connect(m_tcpServerManager, &TcpServerManager::clientConnected, this, &MainWindow::onClientConnected);
-    connect(m_tcpServerManager, &TcpServerManager::clientDisconnected, this, &MainWindow::onClientDisconnected);
-    connect(m_tcpServerManager, &TcpServerManager::dataReceived, this, &MainWindow::onServerDataReceived);
-    connect(m_tcpServerManager, &TcpServerManager::serverMessage, this, &MainWindow::onServerMessage);
+    connect(m_tcpServerManager.get(), &TcpServerManager::clientConnected, this, &MainWindow::onClientConnected);
+    connect(m_tcpServerManager.get(), &TcpServerManager::clientDisconnected, this, &MainWindow::onClientDisconnected);
+    connect(m_tcpServerManager.get(), &TcpServerManager::dataReceived, this, &MainWindow::onServerDataReceived);
+    connect(m_tcpServerManager.get(), &TcpServerManager::serverMessage, this, &MainWindow::onServerMessage);
     
     connect(m_autoSendTimer, &QTimer::timeout, this, &MainWindow::on_sendButton_clicked);
 
@@ -112,11 +112,12 @@ MainWindow::~MainWindow() {
         m_tempMediaFile->remove();
         delete m_tempMediaFile;
     }
-    // 确保UDP管理器在关闭时被删除
-    delete m_udpManager;
+    // --- 修改: 不再需要手动 delete m_udpManager ---
+    // 智能指针会自动处理内存释放
     delete ui;
 }
 
+// ... (initUI, handleIncomingData, updatePortList 函数保持不变)
 void MainWindow::initUI() {
     ui->baudRateComboBox->addItems({"9600", "19200", "38400", "57600", "115200", "460800"});
     ui->parityComboBox->addItems({"None", "Even", "Odd"});
@@ -251,7 +252,6 @@ void MainWindow::updatePortList() {
         }
     }
 }
-
 void MainWindow::updateControlsState() {
     bool isConnected = false;
     int modeIndex = ui->communicationModeComboBox->currentIndex();
@@ -266,7 +266,7 @@ void MainWindow::updateControlsState() {
             ui->connectButton->setText(isConnected ? "断开" : "连接");
             break;
         case 2:
-            // 使用 m_udpManager 接口指针
+            // 使用 m_udpManager 智能指针
             isConnected = (m_udpManager && m_udpManager->isBound());
             ui->connectButton->setText(isConnected ? "解绑" : "绑定");
             break;
@@ -331,39 +331,37 @@ void MainWindow::on_connectButton_clicked() {
             }
             break;
         case 2: // UDP
-            // ===== 重写此部分逻辑 =====
+            // ===== 重写此部分逻辑以使用智能指针 =====
             if (m_udpManager && m_udpManager->isBound()) {
                 m_udpManager->unbindPort(); // 解绑操作
             } else {
-                // 如果实例已存在（例如上次绑定失败），先销毁
-                delete m_udpManager;
-                m_udpManager = nullptr;
+                // 如果实例已存在，先重置（释放旧对象）
+                m_udpManager.reset();
 
                 // 根据UI选项创建正确的UDP管理器实例
                 #ifdef Q_OS_WIN
                 if (ui->useWinSockCheckBox->isChecked()) {
-                    m_udpManager = new WinSockUdpManager(this);
+                    m_udpManager = std::make_unique<WinSockUdpManager>(this);
                     qDebug() << "Using WinSock UDP Manager";
                 } else {
-                    m_udpManager = new QtUdpManager(this);
+                    m_udpManager = std::make_unique<QtUdpManager>(this);
                     qDebug() << "Using Qt UDP Manager";
                 }
                 #else
                 // 在非Windows平台，总是使用QtUdpManager
-                m_udpManager = new QtUdpManager(this);
+                m_udpManager = std::make_unique<QtUdpManager>(this);
                 qDebug() << "Using Qt UDP Manager (non-Windows)";
                 #endif
                 
                 // 连接新实例的信号和槽
-                connect(m_udpManager, &IUdpManager::portBound, this, &MainWindow::onUdpBound);
-                connect(m_udpManager, &IUdpManager::portUnbound, this, &MainWindow::onUdpUnbound);
-                connect(m_udpManager, &IUdpManager::dataReceived, this, &MainWindow::onUdpDataReceived);
+                connect(m_udpManager.get(), &IUdpManager::portBound, this, &MainWindow::onUdpBound);
+                connect(m_udpManager.get(), &IUdpManager::portUnbound, this, &MainWindow::onUdpUnbound);
+                connect(m_udpManager.get(), &IUdpManager::dataReceived, this, &MainWindow::onUdpDataReceived);
 
                 // 尝试绑定端口
                 if (!m_udpManager->bindPort(ui->udpBindPortSpinBox->value())) {
                     QMessageBox::critical(this, "错误", "绑定UDP端口失败！");
-                    delete m_udpManager; // 绑定失败，清理实例
-                    m_udpManager = nullptr;
+                    m_udpManager.reset(); // 绑定失败，清理实例
                 }
             }
             // ===== 结束重写 =====
@@ -379,6 +377,7 @@ void MainWindow::on_connectButton_clicked() {
     }
 }
 
+// ... (on_sendButton_clicked 和其他槽函数类似地使用 -> 或 .get() 访问智能指针)
 void MainWindow::on_sendButton_clicked() {
     QByteArray dataToSend;
     QString text = ui->sendDataEdit->toPlainText();
@@ -472,8 +471,7 @@ void MainWindow::on_communicationModeComboBox_currentIndexChanged(int index) {
             m_videoFrameBuffer.clear();
         }
         // 清理UDP管理器实例
-        delete m_udpManager;
-        m_udpManager = nullptr;
+        m_udpManager.reset();
     }
     // ===== 结束修改 =====
     
@@ -757,9 +755,8 @@ void MainWindow::onUdpUnbound() {
     }
     
     // ===== 新增逻辑 =====
-    // 解绑后，安全地删除UDP管理器实例
-    delete m_udpManager;
-    m_udpManager = nullptr;
+    // 解绑后，安全地重置（删除）UDP管理器实例
+    m_udpManager.reset();
     // ===== 结束新增 =====
 
     updateControlsState();
@@ -775,11 +772,6 @@ void MainWindow::onUdpDataReceived(const QByteArray &data, const QString &sender
     m_videoFrameBuffer.append(data);
     processVideoFrameBuffer();
 }
-
-// ##########################################################################
-// ##                        FINAL FIXED FUNCTION BELOW                    ##
-// ##########################################################################
-
 void MainWindow::processVideoFrameBuffer() {
     static const QByteArray frameHeader("\xF0\x5A\xA5\x0F", 4);
 
