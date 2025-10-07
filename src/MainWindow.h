@@ -6,7 +6,7 @@
 #include <QDateTime>
 #include "SerialManager.h"
 #include "TcpManager.h"
-#include "UdpManager.h"
+#include "IUdpManager.h"      // <--- 修改: 包含抽象接口
 #include "TcpServerManager.h"
 
 #include <QMediaPlayer>
@@ -67,7 +67,7 @@ private slots:
     void onClientDisconnected(const QString &clientInfo);
     void onServerDataReceived(const QByteArray &data, const QString &clientInfo);
     void onServerMessage(const QString &message);
-    
+
     // 其他槽函数
     void updateLogDisplay();
     void onUdpReassemblyTimeout();
@@ -91,13 +91,13 @@ private:
 
 private:
     Ui::MainWindow *ui;
-    
+
     // 通信管理器
     SerialManager *m_serialManager;
     TcpManager *m_tcpManager;
-    UdpManager *m_udpManager;
+    IUdpManager *m_udpManager; // <--- 修改: 将类型改为接口指针
     TcpServerManager *m_tcpServerManager;
-    
+
     // 媒体播放器
     QMediaPlayer *m_mediaPlayer;
     QTemporaryFile *m_tempMediaFile;

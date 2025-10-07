@@ -10,7 +10,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
-# Create the executable, adding the new TcpServerManager source files
+# Create the executable, replacing the old UdpManager with the new refactored classes
 add_executable(FpgaAssist
     main.cpp
     MainWindow.cpp
@@ -20,13 +20,20 @@ add_executable(FpgaAssist
     SerialManager.h
     TcpManager.cpp
     TcpManager.h
-    UdpManager.cpp
-    UdpManager.h
     TcpServerManager.cpp
     TcpServerManager.h  
     WelcomeWindow.cpp   
     WelcomeWindow.h     
     WelcomeWindow.ui
+    
+    # --- Start Modified Section ---
+    # Removed UdpManager, added the new interface and implementations
+    IUdpManager.h
+    QtUdpManager.cpp
+    QtUdpManager.h
+    WinSockUdpManager.cpp
+    WinSockUdpManager.h
+    # --- End Modified Section ---
 )
 
 # Link the target program to the required Qt modules
@@ -37,6 +44,14 @@ target_link_libraries(FpgaAssist PRIVATE
     Qt6::Multimedia
     Qt6::MultimediaWidgets
 )
+
+# --- Start Modified Section ---
+# For the WinSockUdpManager, we need to link the Windows Sockets library on Windows
+if(WIN32)
+    target_link_libraries(FpgaAssist PRIVATE ws2_32)
+endif()
+# --- End Modified Section ---
+
 
 # Set the C++ standard to C++17 (recommended for Qt6)
 set_target_properties(FpgaAssist PROPERTIES

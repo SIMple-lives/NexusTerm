@@ -17,6 +17,14 @@
 #include <QDataStream>
 #include <QDebug>
 
+// ===== 新增引用 =====
+#include "QtUdpManager.h"
+#ifdef Q_OS_WIN
+#include "WinSockUdpManager.h"
+#endif
+// ===== 结束新增 =====
+
+
 // ##########################################################################
 // ##                  NO CHANGES IN THIS SECTION                          ##
 // ##########################################################################
@@ -31,6 +39,7 @@ MainWindow::MainWindow(QWidget *parent)
     , m_fileSendOffset(0)
     , m_isUdpStreaming(false)
     // ===== 修改/新增下面的初始化 =====
+    , m_udpManager(nullptr)        // 初始化为 nullptr
     , m_videoHeaderReceived(false) // 初始化为 false
     , m_videoStreamWidth(0)        // 初始化为 0
     , m_videoStreamHeight(0)       // 初始化为 0
@@ -41,7 +50,7 @@ MainWindow::MainWindow(QWidget *parent)
     ui->setupUi(this);
     m_serialManager = new SerialManager(this);
     m_tcpManager = new TcpManager(this);
-    m_udpManager = new UdpManager(this);
+    // m_udpManager 在点击连接时再创建
     m_tcpServerManager = new TcpServerManager(this);
 
     m_mediaPlayer = new QMediaPlayer(this);
@@ -63,9 +72,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_tcpManager, &TcpManager::dataReceived, this, &MainWindow::onTcpDataReceived);
     connect(m_tcpManager, &TcpManager::errorOccurred, this, &MainWindow::onTcpError);
 
-    connect(m_udpManager, &UdpManager::portBound, this, &MainWindow::onUdpBound);
-    connect(m_udpManager, &UdpManager::portUnbound, this, &MainWindow::onUdpUnbound);
-    connect(m_udpManager, &UdpManager::dataReceived, this, &MainWindow::onUdpDataReceived);
+    // UDP 管理器的信号槽在创建实例时再连接
 
     connect(m_tcpServerManager, &TcpServerManager::clientConnected, this, &MainWindow::onClientConnected);
     connect(m_tcpServerManager, &TcpServerManager::clientDisconnected, this, &MainWindow::onClientDisconnected);
@@ -105,6 +112,8 @@ MainWindow::~MainWindow() {
         m_tempMediaFile->remove();
         delete m_tempMediaFile;
     }
+    // 确保UDP管理器在关闭时被删除
+    delete m_udpManager;
     delete ui;
 }
 
@@ -146,6 +155,15 @@ void MainWindow::initUI() {
     
     // 初始化时清空分辨率标签
     ui->resolutionLabel->clear();
+
+    // ===== 新增逻辑 =====
+    // 在非Windows平台隐藏WinSock选项
+    #ifndef Q_OS_WIN
+        if(ui->useWinSockCheckBox) {
+            ui->useWinSockCheckBox->setVisible(false);
+        }
+    #endif
+    // ===== 结束新增 =====
 }
 
 void MainWindow::handleIncomingData(const QByteArray &data) {
@@ -248,7 +266,8 @@ void MainWindow::updateControlsState() {
             ui->connectButton->setText(isConnected ? "断开" : "连接");
             break;
         case 2:
-            isConnected = m_udpManager->isBound();
+            // 使用 m_udpManager 接口指针
+            isConnected = (m_udpManager && m_udpManager->isBound());
             ui->connectButton->setText(isConnected ? "解绑" : "绑定");
             break;
         case 3: // TCP 服务器模式
@@ -288,7 +307,7 @@ void MainWindow::updateByteCounters() {
 void MainWindow::on_connectButton_clicked() {
     int modeIndex = ui->communicationModeComboBox->currentIndex();
     switch (modeIndex) {
-        case 0:
+        case 0: // 串口
             if (m_serialManager->isOpen()) {
                 m_serialManager->closePort();
             } else {
@@ -304,21 +323,50 @@ void MainWindow::on_connectButton_clicked() {
                 m_serialManager->openPort(portName, baudRate, dataBits, parity, stopBits);
             }
             break;
-        case 1:
+        case 1: // TCP 客户端
             if (m_tcpManager->isConnected()) {
                 m_tcpManager->disconnectFromServer();
             } else {
                 m_tcpManager->connectToServer(ui->tcpHostLineEdit->text(), ui->tcpPortSpinBox->value());
             }
             break;
-        case 2:
-            if (m_udpManager->isBound()) {
-                m_udpManager->unbindPort();
+        case 2: // UDP
+            // ===== 重写此部分逻辑 =====
+            if (m_udpManager && m_udpManager->isBound()) {
+                m_udpManager->unbindPort(); // 解绑操作
             } else {
+                // 如果实例已存在（例如上次绑定失败），先销毁
+                delete m_udpManager;
+                m_udpManager = nullptr;
+
+                // 根据UI选项创建正确的UDP管理器实例
+                #ifdef Q_OS_WIN
+                if (ui->useWinSockCheckBox->isChecked()) {
+                    m_udpManager = new WinSockUdpManager(this);
+                    qDebug() << "Using WinSock UDP Manager";
+                } else {
+                    m_udpManager = new QtUdpManager(this);
+                    qDebug() << "Using Qt UDP Manager";
+                }
+                #else
+                // 在非Windows平台，总是使用QtUdpManager
+                m_udpManager = new QtUdpManager(this);
+                qDebug() << "Using Qt UDP Manager (non-Windows)";
+                #endif
+                
+                // 连接新实例的信号和槽
+                connect(m_udpManager, &IUdpManager::portBound, this, &MainWindow::onUdpBound);
+                connect(m_udpManager, &IUdpManager::portUnbound, this, &MainWindow::onUdpUnbound);
+                connect(m_udpManager, &IUdpManager::dataReceived, this, &MainWindow::onUdpDataReceived);
+
+                // 尝试绑定端口
                 if (!m_udpManager->bindPort(ui->udpBindPortSpinBox->value())) {
                     QMessageBox::critical(this, "错误", "绑定UDP端口失败！");
+                    delete m_udpManager; // 绑定失败，清理实例
+                    m_udpManager = nullptr;
                 }
             }
+            // ===== 结束重写 =====
             break;
         case 3: // TCP 服务器
             if (m_tcpServerManager->isListening()) {
@@ -348,7 +396,12 @@ void MainWindow::on_sendButton_clicked() {
     switch(modeIndex) {
         case 0: m_serialManager->writeData(dataToSend); break;
         case 1: m_tcpManager->writeData(dataToSend); break;
-        case 2: m_udpManager->writeData(dataToSend, ui->udpTargetHostLineEdit->text(), ui->udpTargetPortSpinBox->value()); break;
+        case 2:
+            // 使用 m_udpManager 接口指针
+            if (m_udpManager) {
+                m_udpManager->writeData(dataToSend, ui->udpTargetHostLineEdit->text(), ui->udpTargetPortSpinBox->value());
+            }
+            break;
         case 3: // TCP 服务器
             if (ui->clientListWidget->currentItem()) {
                 QString clientInfo = ui->clientListWidget->currentItem()->text();
@@ -391,7 +444,7 @@ void MainWindow::on_cyclicSendCheckBox_toggled(bool checked) {
     int modeIndex = ui->communicationModeComboBox->currentIndex();
     if (modeIndex == 0) canStart = m_serialManager->isOpen();
     else if (modeIndex == 1) canStart = m_tcpManager->isConnected();
-    else if (modeIndex == 2) canStart = m_udpManager->isBound();
+    else if (modeIndex == 2) canStart = (m_udpManager && m_udpManager->isBound());
     else if (modeIndex == 3) canStart = m_tcpServerManager->isListening() && ui->clientListWidget->currentItem();
 
 
@@ -409,12 +462,21 @@ void MainWindow::on_communicationModeComboBox_currentIndexChanged(int index) {
     } else {
         m_portScanTimer->stop();
     }
-    // 如果从UDP模式切换走，则停止视频流
-    if (index != 2 && m_isUdpStreaming) {
-        m_isUdpStreaming = false;
-        ui->playPauseButton->setText("播放");
-        m_videoFrameBuffer.clear();
+    
+    // ===== 修改逻辑 =====
+    // 如果从UDP模式切换走，则停止视频流并清理UDP管理器
+    if (index != 2) {
+        if (m_isUdpStreaming) {
+            m_isUdpStreaming = false;
+            ui->playPauseButton->setText("播放");
+            m_videoFrameBuffer.clear();
+        }
+        // 清理UDP管理器实例
+        delete m_udpManager;
+        m_udpManager = nullptr;
     }
+    // ===== 结束修改 =====
+    
     updateControlsState();
 }
 
@@ -435,7 +497,11 @@ void MainWindow::on_sendTextAsFileButton_clicked() {
     switch(modeIndex) {
         case 0: m_serialManager->writeData(fileData); break;
         case 1: m_tcpManager->writeData(fileData); break;
-        case 2: m_udpManager->writeData(fileData, ui->udpTargetHostLineEdit->text(), ui->udpTargetPortSpinBox->value()); break;
+        case 2:
+             if (m_udpManager) {
+                m_udpManager->writeData(fileData, ui->udpTargetHostLineEdit->text(), ui->udpTargetPortSpinBox->value());
+             }
+             break;
         case 3: // TCP 服务器
             if (ui->clientListWidget->currentItem()) {
                 QString clientInfo = ui->clientListWidget->currentItem()->text();
@@ -503,7 +569,9 @@ void MainWindow::sendFileChunk()
     int chunkSize = ui->packetSizeSpinBox->value();
     QByteArray chunk = m_fileDataToSend.mid(m_fileSendOffset, chunkSize);
 
-    m_udpManager->writeData(chunk, ui->udpTargetHostLineEdit->text(), ui->udpTargetPortSpinBox->value());
+    if (m_udpManager) {
+        m_udpManager->writeData(chunk, ui->udpTargetHostLineEdit->text(), ui->udpTargetPortSpinBox->value());
+    }
 
     m_txBytes += chunk.size();
     updateByteCounters();
@@ -526,7 +594,7 @@ void MainWindow::on_clearDisplayButton_clicked()
 void MainWindow::on_playPauseButton_clicked()
 {
     // 检查是否为UDP模式且端口已绑定
-    if (ui->communicationModeComboBox->currentIndex() == 2 && m_udpManager->isBound()) {
+    if (ui->communicationModeComboBox->currentIndex() == 2 && (m_udpManager && m_udpManager->isBound())) {
         if (!m_isUdpStreaming) {
             // --- 开始视频流 ---
             m_isUdpStreaming = true;
@@ -682,13 +750,18 @@ void MainWindow::onUdpUnbound() {
     if (m_isUdpStreaming) {
         m_isUdpStreaming = false;
         
-        // ===== 新增逻辑：重置视频流状态 =====
         m_videoHeaderReceived = false;
-        // ===== 结束新增 =====
 
         ui->playPauseButton->setText("播放");
         m_videoFrameBuffer.clear();
     }
+    
+    // ===== 新增逻辑 =====
+    // 解绑后，安全地删除UDP管理器实例
+    delete m_udpManager;
+    m_udpManager = nullptr;
+    // ===== 结束新增 =====
+
     updateControlsState();
     m_statusLabel->setText("UDP 已解绑");
 }
@@ -709,65 +782,61 @@ void MainWindow::onUdpDataReceived(const QByteArray &data, const QString &sender
 
 void MainWindow::processVideoFrameBuffer() {
     static const QByteArray frameHeader("\xF0\x5A\xA5\x0F", 4);
-    static const int metaDataSize = 8; // 帧头(4字节) + 宽度(2字节) + 高度(2字节)
 
-    // 循环处理，确保缓冲区内的所有完整帧都被处理
+    // 循环处理，确保一次调用能处理完缓冲区里所有完整的帧
     while (true) {
-        // --- 步骤 1: 寻找帧头并同步缓冲区 ---
-        int startHeaderPos = m_videoFrameBuffer.indexOf(frameHeader);
-        if (startHeaderPos == -1) {
-            // 缓冲区内没有找到任何帧头，无法处理，等待更多数据
-            return;
-        }
-        // 丢弃在第一个有效帧头前的所有垃圾数据
-        m_videoFrameBuffer.remove(0, startHeaderPos);
-
-        // --- 步骤 2: 检查元数据是否完整 ---
-        if (m_videoFrameBuffer.size() < metaDataSize) {
-            // 数据不足以读取宽度和高度，等待更多数据
+        // --- 步骤 1: 寻找并对齐帧头 ---
+        int headerPos = m_videoFrameBuffer.indexOf(frameHeader);
+        if (headerPos == -1) {
+            // 缓冲区里没有帧头，退出函数，等待更多数据
             return;
         }
 
-        // --- 步骤 3: 解析并验证元数据 ---
+        // 丢弃帧头前的所有无效数据，实现数据流同步
+        m_videoFrameBuffer.remove(0, headerPos);
+
+        // --- 步骤 2: 验证元数据长度 ---
+        if (m_videoFrameBuffer.size() < 8) {
+            // 数据不足以解析出宽度和高度，退出等待
+            return;
+        }
+
+        // --- 步骤 3: 解析并验证分辨率 ---
         const uchar* meta = reinterpret_cast<const uchar*>(m_videoFrameBuffer.constData() + 4);
         quint16 width  = (meta[0] << 8) | meta[1];
         quint16 height = (meta[2] << 8) | meta[3];
 
-        // 对分辨率进行基础验证。如果数值无效或过大，则判定这是一个伪造的/损坏的帧头
         if (width == 0 || height == 0 || width > 4096 || height > 4096) {
-            qDebug() << "[Video Sync Error] 解析到无效分辨率 " << width << "x" << height << "，判定为伪帧头，正在重新同步...";
-            // 丢弃这4个字节的伪帧头，然后从循环顶部重新开始寻找下一个有效帧头
-            m_videoFrameBuffer.remove(0, 4);
-            continue;
+            // 分辨率数值无效，说明这个帧头是伪造的或已损坏
+            qDebug() << "[Video Sync Error] 解析到无效分辨率: " << width << "x" << height << ". 丢弃数据并寻找下一个帧头...";
+            m_videoFrameBuffer.remove(0, 1); // 只移除1个字节，以防在同一个错误位置死循环
+            continue; // 继续外层while循环，寻找下一个有效的帧头
         }
 
-        // --- 步骤 4: 计算当前帧的预期总大小 ---
-        int expectedPixelDataSize = width * height * 2; // RGB16 格式，每像素2字节
-        int totalFrameSize = metaDataSize + expectedPixelDataSize;
+        // --- 步骤 4: 验证数据帧的完整性 ---
+        int singleFrameSize = width * height * 2;
+        int totalFrameSize = 8 + singleFrameSize; // 整个数据帧的大小 = 元数据 + 像素数据
 
-        // --- 步骤 5 (防闪烁核心): 检查当前帧内部是否混入了下一个帧头 ---
+        if (m_videoFrameBuffer.size() < totalFrameSize) {
+            // 缓冲区的数据还不够一整帧，退出等待
+            return;
+        }
+
+        // --- 步骤 5: 最终校验，检查帧内部是否混入下一个帧头 ---
         // 我们只检查当前帧的像素数据部分是否意外包含帧头
         // 搜索的起始位置是当前帧头之后 (比如从第1个字节开始)
         int nextHeaderPos = m_videoFrameBuffer.indexOf(frameHeader, 1);
         if (nextHeaderPos != -1 && nextHeaderPos < totalFrameSize) {
-            // 在当前帧预期结束之前就找到了下一个帧头，
-            // 说明当前帧因丢包而损坏或被截断。
-            qDebug() << "[Video Sync] 检测到损坏的帧，丢弃 " << nextHeaderPos << " 字节并重新同步...";
-            // 丢弃这些损坏的数据，并从下一个有效帧头开始处理
-            m_videoFrameBuffer.remove(0, nextHeaderPos);
-            continue; // 继续外层while循环
-        }
-        
-        // --- 步骤 6: 检查缓冲区的数据是否足够构成一整个有效帧 ---
-        if (m_videoFrameBuffer.size() < totalFrameSize) {
-            // 数据还不够一整帧，等待接收更多数据
-            return;
+            // 在当前帧结束前就出现了下一个帧头，说明当前帧因丢包而损坏
+            qDebug() << "[Video Sync] 检测到损坏的帧，正在重新同步...";
+            m_videoFrameBuffer.remove(0, nextHeaderPos); // 丢弃损坏帧的数据
+            continue; // 继续外层while循环，处理找到的下一个帧头
         }
 
-        // --- 步骤 7: 所有检查通过，提取、解码并显示图像 ---
-        QByteArray imageDataBytes = m_videoFrameBuffer.mid(metaDataSize, expectedPixelDataSize);
+        // --- 所有检查通过，解码并显示图像 ---
+        QByteArray imageDataBytes = m_videoFrameBuffer.mid(8, singleFrameSize);
 
-        // 为适应RGB16格式，进行字节序交换 (高低位交换)
+        // 修正字节序
         for(int i = 0; i < imageDataBytes.size(); i += 2) {
             std::swap(imageDataBytes[i], imageDataBytes[i+1]);
         }
@@ -776,21 +845,26 @@ void MainWindow::processVideoFrameBuffer() {
         QImage image(correctedImageDataPtr, width, height, QImage::Format_RGB16);
 
         if (!image.isNull()) {
-            ui->imageDisplayLabel->setPixmap(QPixmap::fromImage(image).scaled(ui->imageDisplayLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            QPixmap pixmap = QPixmap::fromImage(image);
             
+            // 绘制前清空，防止UI残留
+            ui->imageDisplayLabel->clear();
+            ui->imageDisplayLabel->setPixmap(pixmap.scaled(ui->imageDisplayLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            
+            // 确保显示的是图像页面
             if (ui->displayStackedWidget->currentIndex() != 1) {
                  ui->displayStackedWidget->setCurrentIndex(1);
             }
             ui->resolutionLabel->setText(QString("%1 x %2").arg(width).arg(height));
         } else {
-            qDebug() << "[Video ERROR] QImage无法从有效的帧数据加载图像。";
+            qDebug() << "[Video ERROR] QImage无法从数据加载。";
         }
 
-        // --- 步骤 8: 从缓冲区移除已处理的帧 ---
+        // 从缓冲区移除已处理的完整帧
         m_videoFrameBuffer.remove(0, totalFrameSize);
-        // 继续循环，以处理缓冲区中可能存在的下一帧
     }
 }
+
 
 
 void MainWindow::onUdpReassemblyTimeout() {
