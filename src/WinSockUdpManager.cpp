@@ -1,13 +1,9 @@
-// WinSockUdpManager.cpp
 #ifdef Q_OS_WIN
 
 #include "WinSockUdpManager.h"
-#include <ws2tcpip.h> // For inet_ntop, etc.
+#include <ws2tcpip.h>
 #include <QDebug>
 
-// ===================================================================
-//  UdpReceiverWorker Implementation
-// ===================================================================
 UdpReceiverWorker::UdpReceiverWorker(SOCKET socket, QObject* parent)
     : QObject(parent), m_socket(socket), m_stop(false) {}
 

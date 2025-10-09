@@ -4,7 +4,7 @@
 #include <QMainWindow>
 #include <QLabel>
 #include <QDateTime>
-#include <memory> // <--- 新增: 包含智能指针头文件
+#include <memory>
 #include "SerialManager.h"
 #include "TcpManager.h"
 #include "IUdpManager.h"
@@ -93,12 +93,10 @@ private:
 private:
     Ui::MainWindow *ui;
 
-    // --- 修改: 将通信管理器类型改为 std::unique_ptr ---
     std::unique_ptr<SerialManager> m_serialManager;
     std::unique_ptr<TcpManager> m_tcpManager;
     std::unique_ptr<IUdpManager> m_udpManager;
     std::unique_ptr<TcpServerManager> m_tcpServerManager;
-    // --- 结束修改 ---
 
     // 媒体播放器
     QMediaPlayer *m_mediaPlayer;
@@ -131,12 +129,10 @@ private:
     // UDP视频流相关
     bool m_isUdpStreaming;
     QByteArray m_videoFrameBuffer;
-    // ===== 新增的成员变量 =====
+
     bool m_videoHeaderReceived; // 标志位，用于判断是否已收到帧头
     quint16 m_videoStreamWidth;   // 从流中解析出的视频宽度
     quint16 m_videoStreamHeight;  // 从流中解析出的视频高度
-    // ===== 结束新增 =====
-
 
     // 单帧测试相关
     int m_framesToSkip;         // 目标跳过的帧数

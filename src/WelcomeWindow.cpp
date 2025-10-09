@@ -16,9 +16,6 @@ WelcomeWindow::WelcomeWindow(QWidget *parent) :
 
     m_networkManager = new QNetworkAccessManager(this);
 
-    // ===================================================================
-    //  请在此处粘贴您的图片链接
-    // ===================================================================
     QUrl imageUrl("https://pub-a7510641c4c0427886fce394cb093861.r2.dev/%E7%B2%89%E8%89%B2.jpeg");
 
 

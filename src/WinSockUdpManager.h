@@ -1,8 +1,6 @@
-// WinSockUdpManager.h
 #ifndef WINSOCKUDPMANAGER_H
 #define WINSOCKUDPMANAGER_H
 
-// 仅在Windows平台编译
 #ifdef Q_OS_WIN
 
 #include "IUdpManager.h"

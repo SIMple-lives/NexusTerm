@@ -16,28 +16,20 @@
 #include <QListWidget>
 #include <QDataStream>
 #include <QDebug>
-#include <memory> // 确保包含了 memory 头文件
+#include <memory>
 
-// ===== 新增引用 =====
 #include "QtUdpManager.h"
 #ifdef Q_OS_WIN
 #include "WinSockUdpManager.h"
 #endif
-// ===== 结束新增 =====
 
-
-// ##########################################################################
-// ##                  NO CHANGES IN THIS SECTION                          ##
-// ##########################################################################
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
-    // --- 修改: 初始化智能指针 ---
     , m_serialManager(std::make_unique<SerialManager>(this))
     , m_tcpManager(std::make_unique<TcpManager>(this))
     , m_udpManager(nullptr) // UDP管理器在连接时才创建，先置空
     , m_tcpServerManager(std::make_unique<TcpServerManager>(this))
-    // --- 结束修改 ---
     , m_mediaPlayer(nullptr)
     , m_tempMediaFile(nullptr)
     , m_rxBytes(0)
@@ -112,12 +104,9 @@ MainWindow::~MainWindow() {
         m_tempMediaFile->remove();
         delete m_tempMediaFile;
     }
-    // --- 修改: 不再需要手动 delete m_udpManager ---
-    // 智能指针会自动处理内存释放
     delete ui;
 }
 
-// ... (initUI, handleIncomingData, updatePortList 函数保持不变)
 void MainWindow::initUI() {
     ui->baudRateComboBox->addItems({"9600", "19200", "38400", "57600", "115200", "460800"});
     ui->parityComboBox->addItems({"None", "Even", "Odd"});
@@ -157,14 +146,11 @@ void MainWindow::initUI() {
     // 初始化时清空分辨率标签
     ui->resolutionLabel->clear();
 
-    // ===== 新增逻辑 =====
-    // 在非Windows平台隐藏WinSock选项
     #ifndef Q_OS_WIN
         if(ui->useWinSockCheckBox) {
             ui->useWinSockCheckBox->setVisible(false);
         }
     #endif
-    // ===== 结束新增 =====
 }
 
 void MainWindow::handleIncomingData(const QByteArray &data) {
@@ -331,7 +317,6 @@ void MainWindow::on_connectButton_clicked() {
             }
             break;
         case 2: // UDP
-            // ===== 重写此部分逻辑以使用智能指针 =====
             if (m_udpManager && m_udpManager->isBound()) {
                 m_udpManager->unbindPort(); // 解绑操作
             } else {
@@ -364,7 +349,6 @@ void MainWindow::on_connectButton_clicked() {
                     m_udpManager.reset(); // 绑定失败，清理实例
                 }
             }
-            // ===== 结束重写 =====
             break;
         case 3: // TCP 服务器
             if (m_tcpServerManager->isListening()) {
@@ -377,7 +361,6 @@ void MainWindow::on_connectButton_clicked() {
     }
 }
 
-// ... (on_sendButton_clicked 和其他槽函数类似地使用 -> 或 .get() 访问智能指针)
 void MainWindow::on_sendButton_clicked() {
     QByteArray dataToSend;
     QString text = ui->sendDataEdit->toPlainText();
@@ -423,7 +406,6 @@ void MainWindow::on_sendButton_clicked() {
     }
 }
 
-
 void MainWindow::on_clearReceiveButton_clicked() {
     m_logBuffer.clear();
     updateLogDisplay();
@@ -462,8 +444,6 @@ void MainWindow::on_communicationModeComboBox_currentIndexChanged(int index) {
         m_portScanTimer->stop();
     }
     
-    // ===== 修改逻辑 =====
-    // 如果从UDP模式切换走，则停止视频流并清理UDP管理器
     if (index != 2) {
         if (m_isUdpStreaming) {
             m_isUdpStreaming = false;
@@ -473,7 +453,6 @@ void MainWindow::on_communicationModeComboBox_currentIndexChanged(int index) {
         // 清理UDP管理器实例
         m_udpManager.reset();
     }
-    // ===== 结束修改 =====
     
     updateControlsState();
 }
@@ -609,9 +588,7 @@ void MainWindow::on_playPauseButton_clicked()
             // --- 停止视频流 ---
             m_isUdpStreaming = false;
             
-            // ===== 新增逻辑：重置视频流状态 =====
             m_videoHeaderReceived = false; 
-            // ===== 结束新增 =====
             
             ui->playPauseButton->setText("播放");
             m_statusLabel->setText(QString("UDP已绑定本地端口: %1").arg(ui->udpBindPortSpinBox->value()));
@@ -754,10 +731,7 @@ void MainWindow::onUdpUnbound() {
         m_videoFrameBuffer.clear();
     }
     
-    // ===== 新增逻辑 =====
-    // 解绑后，安全地重置（删除）UDP管理器实例
     m_udpManager.reset();
-    // ===== 结束新增 =====
 
     updateControlsState();
     m_statusLabel->setText("UDP 已解绑");
@@ -772,6 +746,7 @@ void MainWindow::onUdpDataReceived(const QByteArray &data, const QString &sender
     m_videoFrameBuffer.append(data);
     processVideoFrameBuffer();
 }
+
 void MainWindow::processVideoFrameBuffer() {
     static const QByteArray frameHeader("\xF0\x5A\xA5\x0F", 4);
 
@@ -856,8 +831,6 @@ void MainWindow::processVideoFrameBuffer() {
         m_videoFrameBuffer.remove(0, totalFrameSize);
     }
 }
-
-
 
 void MainWindow::onUdpReassemblyTimeout() {
     if (m_udpBuffer.isEmpty()) return;
