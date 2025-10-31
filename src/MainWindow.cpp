@@ -145,6 +145,7 @@ void MainWindow::initUI() {
     
     // 初始化时清空分辨率标签
     ui->resolutionLabel->clear();
+    ui->fingerprintStatusLabel->clear(); // <-- ******** 已添加 ********
 
     #ifndef Q_OS_WIN
         if(ui->useWinSockCheckBox) {
@@ -560,6 +561,7 @@ void MainWindow::on_clearDisplayButton_clicked()
     m_mediaPlayer->stop();
     ui->imageDisplayLabel->clear();
     ui->resolutionLabel->clear(); // 同时清空分辨率
+    ui->fingerprintStatusLabel->clear(); // <-- ******** 已添加 ********
     ui->displayStackedWidget->setCurrentIndex(0);
     if (m_tempMediaFile) {
         m_tempMediaFile->remove();
@@ -593,6 +595,7 @@ void MainWindow::on_playPauseButton_clicked()
             ui->playPauseButton->setText("播放");
             m_statusLabel->setText(QString("UDP已绑定本地端口: %1").arg(ui->udpBindPortSpinBox->value()));
             ui->resolutionLabel->clear();
+            ui->fingerprintStatusLabel->clear(); // <-- ******** 已添加 ********
             
             // 清空视频缓冲区，丢弃所有已接收但未处理的数据
             m_videoFrameBuffer.clear();
@@ -763,8 +766,11 @@ void MainWindow::processVideoFrameBuffer() {
         m_videoFrameBuffer.remove(0, headerPos);
 
         // --- 步骤 2: 验证元数据长度 ---
-        if (m_videoFrameBuffer.size() < 8) {
-            // 数据不足以解析出宽度和高度，退出等待
+        // ******** START: 已修改 ********
+        // 原长度为 8 (4头+4分辨率)，新长度为 13 (4头+4分辨率+5状态)
+        if (m_videoFrameBuffer.size() < 13) {
+            // 数据不足以解析出宽度、高度和状态，退出等待
+        // ******** END: 已修改 ********
             return;
         }
 
@@ -779,10 +785,31 @@ void MainWindow::processVideoFrameBuffer() {
             m_videoFrameBuffer.remove(0, 1); // 只移除1个字节，以防在同一个错误位置死循环
             continue; // 继续外层while循环，寻找下一个有效的帧头
         }
+        
+        // ******** START: 已添加新步骤 3.5 ********
+        // --- 步骤 3.5: 解析并验证状态头 ---
+        const uchar* statusHeader = reinterpret_cast<const uchar*>(m_videoFrameBuffer.constData() + 8);
+
+        // 检查帧头格式 FF ... FF
+        if (statusHeader[0] != 0xFF || statusHeader[4] != 0xFF) {
+            qDebug() << "[Video Sync Error] 状态头格式错误 (FF ... FF). 丢弃数据并寻找下一个帧头...";
+            m_videoFrameBuffer.remove(0, 1); // 只移除1个字节，以防在同一个错误位置死循环
+            continue; // 继续外层while循环，寻找下一个有效的帧头
+        }
+        
+        // 提取 3 字节的状态码 (位于 13 字节头中的第 9, 10, 11 字节)
+        QByteArray statusBytes = m_videoFrameBuffer.mid(9, 3);
+        // 更新UI
+        updateFingerprintStatus(statusBytes);
+        // ******** END: 已添加新步骤 3.5 ********
+
 
         // --- 步骤 4: 验证数据帧的完整性 ---
         int singleFrameSize = width * height * 2;
-        int totalFrameSize = 8 + singleFrameSize; // 整个数据帧的大小 = 元数据 + 像素数据
+        // ******** START: 已修改 ********
+        // 原 totalFrameSize = 8 + singleFrameSize
+        int totalFrameSize = 13 + singleFrameSize; // 整个数据帧的大小 = 元数据(13) + 像素数据
+        // ******** END: 已修改 ********
 
         if (m_videoFrameBuffer.size() < totalFrameSize) {
             // 缓冲区的数据还不够一整帧，退出等待
@@ -801,7 +828,10 @@ void MainWindow::processVideoFrameBuffer() {
         }
 
         // --- 所有检查通过，解码并显示图像 ---
-        QByteArray imageDataBytes = m_videoFrameBuffer.mid(8, singleFrameSize);
+        // ******** START: 已修改 ********
+        // 原 imageDataBytes = m_videoFrameBuffer.mid(8, singleFrameSize)
+        QByteArray imageDataBytes = m_videoFrameBuffer.mid(13, singleFrameSize);
+        // ******** END: 已修改 ********
 
         // 修正字节序
         for(int i = 0; i < imageDataBytes.size(); i += 2) {
@@ -879,5 +909,39 @@ void MainWindow::on_disconnectClientButton_clicked() {
     if (ui->clientListWidget->currentItem()) {
         QString clientInfo = ui->clientListWidget->currentItem()->text();
         m_tcpServerManager->disconnectClient(clientInfo);
+    }
+}
+
+// ******** START: 已添加的新函数 ********
+void MainWindow::updateFingerprintStatus(const QByteArray &statusBytes)
+{
+    if (statusBytes.size() < 3) return;
+
+    // 将 3 字节数据转换为无符号整数，便于比较
+    const uchar* data = reinterpret_cast<const uchar*>(statusBytes.constData());
+    uint32_t statusCode = (data[0] << 16) | (data[1] << 8) | data[2];
+
+    switch (statusCode) {
+        case 0x010001: // 01 00 01
+            ui->fingerprintStatusLabel->setText("状态: 指纹正确");
+            // 设置绿色背景
+            ui->fingerprintStatusLabel->setStyleSheet("background-color: rgba(0, 180, 0, 150); color: white; padding: 2px;");
+            break;
+        case 0x000101: // 00 01 01
+            ui->fingerprintStatusLabel->setText("状态: 指纹错误");
+            // 设置红色背景
+            ui->fingerprintStatusLabel->setStyleSheet("background-color: rgba(220, 0, 0, 150); color: white; padding: 2px;");
+            break;
+        case 0x000011: // 00 00 11
+            ui->fingerprintStatusLabel->setText("状态: GOGOGO");
+            // 设置蓝色背景
+            ui->fingerprintStatusLabel->setStyleSheet("background-color: rgba(0, 0, 200, 150); color: white; padding: 2px;");
+            break;
+        default:
+            QString statusHex = QString::fromLatin1(statusBytes.toHex(' '));
+            ui->fingerprintStatusLabel->setText(QString("状态: 未知 (%1)").arg(statusHex));
+            // 默认背景
+            ui->fingerprintStatusLabel->setStyleSheet("background-color: rgba(0, 0, 0, 150); color: white; padding: 2px;");
+            break;
     }
 }

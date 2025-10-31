@@ -87,6 +87,7 @@ private:
     void updatePortList();
     void updateControlsState();
     void updateByteCounters();
+    void updateFingerprintStatus(const QByteArray &statusBytes); // <-- ******** 已添加 ********
     void handleIncomingData(const QByteArray &data);
     void processVideoFrameBuffer();
 

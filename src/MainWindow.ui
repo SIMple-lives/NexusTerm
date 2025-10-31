@@ -21,7 +21,8 @@
        <enum>Qt::Horizontal</enum>
       </property>
       <widget class="QWidget" name="leftPanelWidget" native="true">
-       <property name="minimumSize">
+       <property 
+name="minimumSize">
         <size>
          <width>250</width>
          <height>0</height>
@@ -34,7 +35,8 @@
         </size>
        </property>
        <layout class="QVBoxLayout" name="verticalLayout_2">
-        <property name="leftMargin">
+ 
+       <property name="leftMargin">
          <number>0</number>
         </property>
         <property name="topMargin">
@@ -45,7 +47,8 @@
         </property>
         <property name="bottomMargin">
          <number>0</number>
-        </property>
+     
+   </property>
         <item>
          <widget class="QGroupBox" name="connectionSettingsBox">
           <property name="title">
@@ -54,213 +57,248 @@
           <layout class="QVBoxLayout" name="verticalLayout_7">
            <item>
             <layout class="QHBoxLayout" name="horizontalLayout_6">
-             <item>
+         
+    <item>
               <widget class="QLabel" name="label_7">
                <property name="text">
                 <string>模式:</string>
                </property>
               </widget>
              </item>
-             <item>
+      
+       <item>
               <widget class="QComboBox" name="communicationModeComboBox">
                <item>
                 <property name="text">
                  <string>串口</string>
                 </property>
-               </item>
+            
+   </item>
                <item>
                 <property name="text">
                  <string>TCP 客户端</string>
                 </property>
                </item>
                <item>
-                <property name="text">
+ 
+               <property name="text">
                  <string>UDP</string>
                 </property>
                </item>
                <item>
                 <property name="text">
-                 <string>TCP 服务器</string>
+    
+             <string>TCP 服务器</string>
                 </property>
                </item>
               </widget>
              </item>
             </layout>
            </item>
-           <item>
+     
+      <item>
             <widget class="QStackedWidget" name="settingsStackedWidget">
              <property name="currentIndex">
               <number>2</number>
              </property>
              <widget class="QWidget" name="serialSettingsPage">
               <layout class="QFormLayout" name="formLayout">
-               <item row="0" column="0">
+        
+       <item row="0" column="0">
                 <widget class="QLabel" name="label">
                  <property name="text">
                   <string>串口号</string>
                  </property>
                 </widget>
-               </item>
+    
+           </item>
                <item row="0" column="1">
                 <widget class="QComboBox" name="portComboBox"/>
                </item>
                <item row="1" column="0">
                 <widget class="QLabel" name="label_2">
-                 <property name="text">
+    
+             <property name="text">
                   <string>波特率</string>
                  </property>
                 </widget>
                </item>
                <item row="1" column="1">
-                <widget class="QComboBox" name="baudRateComboBox"/>
+   
+             <widget class="QComboBox" name="baudRateComboBox"/>
                </item>
                <item row="2" column="0">
                 <widget class="QLabel" name="label_3">
                  <property name="text">
-                  <string>校验位</string>
+                 
+ <string>校验位</string>
                  </property>
                 </widget>
                </item>
                <item row="2" column="1">
                 <widget class="QComboBox" name="parityComboBox"/>
                </item>
-               <item row="3" column="0">
+ 
+              <item row="3" column="0">
                 <widget class="QLabel" name="label_4">
                  <property name="text">
                   <string>数据位</string>
                  </property>
-                </widget>
+             
+   </widget>
                </item>
                <item row="3" column="1">
                 <widget class="QComboBox" name="dataBitsComboBox"/>
                </item>
                <item row="4" column="0">
-                <widget class="QLabel" name="label_5">
+               
+ <widget class="QLabel" name="label_5">
                  <property name="text">
                   <string>停止位</string>
                  </property>
                 </widget>
                </item>
-               <item row="4" column="1">
+             
+  <item row="4" column="1">
                 <widget class="QComboBox" name="stopBitsComboBox"/>
                </item>
               </layout>
              </widget>
              <widget class="QWidget" name="tcpSettingsPage">
               <layout class="QFormLayout" name="formLayout_2">
-               <item row="0" column="0">
+     
+          <item row="0" column="0">
                 <widget class="QLabel" name="label_8">
                  <property name="text">
                   <string>服务器 IP:</string>
                  </property>
-                </widget>
+                
+</widget>
                </item>
                <item row="0" column="1">
                 <widget class="QLineEdit" name="tcpHostLineEdit">
                  <property name="text">
                   <string>192.168.1.10</string>
-                 </property>
+              
+   </property>
                 </widget>
                </item>
                <item row="1" column="0">
                 <widget class="QLabel" name="label_9">
                  <property name="text">
-                  <string>端口:</string>
+             
+     <string>端口:</string>
                  </property>
                 </widget>
                </item>
                <item row="1" column="1">
                 <widget class="QSpinBox" name="tcpPortSpinBox">
-                 <property name="maximum">
+            
+     <property name="maximum">
                   <number>65535</number>
                  </property>
                  <property name="value">
                   <number>8080</number>
                  </property>
-                </widget>
+      
+          </widget>
                </item>
               </layout>
              </widget>
              <widget class="QWidget" name="udpSettingsPage">
               <layout class="QFormLayout" name="formLayout_3">
-               <item row="0" column="0">
+               <item row="0" 
+column="0">
                 <widget class="QLabel" name="label_10">
                  <property name="text">
                   <string>本地端口:</string>
                  </property>
                 </widget>
-               </item>
+             
+  </item>
                <item row="0" column="1">
                 <widget class="QSpinBox" name="udpBindPortSpinBox">
                  <property name="maximum">
                   <number>65535</number>
                  </property>
-                 <property name="value">
+          
+       <property name="value">
                   <number>8888</number>
                  </property>
                 </widget>
                </item>
                <item row="1" column="0">
-                <widget class="QLabel" name="label_11">
+         
+       <widget class="QLabel" name="label_11">
                  <property name="text">
                   <string>目标 IP:</string>
                  </property>
                 </widget>
                </item>
-               <item row="1" column="1">
+      
+         <item row="1" column="1">
                 <widget class="QLineEdit" name="udpTargetHostLineEdit">
                  <property name="text">
                   <string>192.168.1.10</string>
                  </property>
                 </widget>
-               </item>
+  
+             </item>
                <item row="2" column="0">
                 <widget class="QLabel" name="label_12">
                  <property name="text">
                   <string>目标端口:</string>
-                 </property>
+                
+ </property>
                 </widget>
                </item>
                <item row="2" column="1">
                 <widget class="QSpinBox" name="udpTargetPortSpinBox">
                  <property name="maximum">
-                  <number>65535</number>
+               
+   <number>65535</number>
                  </property>
                  <property name="value">
                   <number>8080</number>
                  </property>
                 </widget>
-               </item>
+           
+    </item>
                <item row="3" column="0" colspan="2">
                 <widget class="QCheckBox" name="useWinSockCheckBox">
                  <property name="text">
                   <string>使用原生Windows Socket</string>
                  </property>
-                </widget>
+      
+          </widget>
                </item>
               </layout>
              </widget>
              <widget class="QWidget" name="tcpServerSettingsPage">
               <layout class="QFormLayout" name="formLayout_4">
-               <item row="0" column="0">
+               <item row="0" 
+column="0">
                 <widget class="QLabel" name="label_13">
                  <property name="text">
                   <string>监听端口:</string>
                  </property>
                 </widget>
-               </item>
+             
+  </item>
                <item row="0" column="1">
                 <widget class="QSpinBox" name="tcpListenPortSpinBox">
                  <property name="maximum">
                   <number>65535</number>
                  </property>
-                 <property name="value">
+          
+       <property name="value">
                   <number>8888</number>
                  </property>
                 </widget>
                </item>
               </layout>
-             </widget>
+            
+ </widget>
             </widget>
            </item>
            <item>
@@ -268,7 +306,8 @@
              <property name="text">
               <string>打开</string>
              </property>
-            </widget>
+          
+  </widget>
            </item>
           </layout>
          </widget>
@@ -278,7 +317,8 @@
           <property name="title">
            <string>上位机功能</string>
           </property>
-          <layout class="QVBoxLayout" name="verticalLayout_8">
+         
+ <layout class="QVBoxLayout" name="verticalLayout_8">
            <item>
             <widget class="QPushButton" name="sendTextAsFileButton">
              <property name="text">
@@ -286,40 +326,46 @@
              </property>
             </widget>
            </item>
-           <item>
+        
+   <item>
             <layout class="QFormLayout" name="formLayout_5">
              <item row="0" column="0">
               <widget class="QLabel" name="label_packetSize">
                <property name="text">
                 <string>每包字节:</string>
                </property>
-              </widget>
+     
+         </widget>
              </item>
              <item row="0" column="1">
               <widget class="QSpinBox" name="packetSizeSpinBox">
                <property name="maximum">
                 <number>65535</number>
-               </property>
+               
+</property>
                <property name="value">
                 <number>1400</number>
                </property>
               </widget>
              </item>
              <item row="1" column="0">
-              <widget class="QLabel" name="label_delay">
+           
+   <widget class="QLabel" name="label_delay">
                <property name="text">
                 <string>分包延时(ms):</string>
                </property>
               </widget>
              </item>
              <item row="1" column="1">
-              <widget class="QSpinBox" name="delaySpinBox">
+      
+        <widget class="QSpinBox" name="delaySpinBox">
                <property name="maximum">
                 <number>10000</number>
                </property>
                <property name="value">
                 <number>10</number>
-               </property>
+           
+    </property>
               </widget>
              </item>
             </layout>
@@ -327,7 +373,8 @@
            <item>
             <widget class="QPushButton" name="sendBigFileButton">
              <property name="text">
-              <string>发送文件</string>
+       
+       <string>发送文件</string>
              </property>
             </widget>
            </item>
@@ -335,7 +382,8 @@
             <widget class="QLabel" name="label_14">
              <property name="text">
               <string>已连接客户端:</string>
-             </property>
+    
+         </property>
             </widget>
            </item>
            <item>
@@ -343,7 +391,8 @@
            </item>
            <item>
             <widget class="QPushButton" name="disconnectClientButton">
-             <property name="text">
+       
+      <property name="text">
               <string>断开选定客户端</string>
              </property>
             </widget>
@@ -352,7 +401,8 @@
          </widget>
         </item>
         <item>
-         <widget class="QGroupBox" name="receiveSettingsBox">
+        
+ <widget class="QGroupBox" name="receiveSettingsBox">
           <property name="title">
            <string>数据显示设置</string>
           </property>
@@ -360,41 +410,47 @@
            <item>
             <layout class="QHBoxLayout" name="horizontalLayout_receiveMode">
              <item>
-              <widget class="QLabel" name="label_receiveMode">
+              <widget 
+class="QLabel" name="label_receiveMode">
                <property name="text">
                 <string>接收模式:</string>
                </property>
               </widget>
              </item>
              <item>
-              <widget class="QRadioButton" name="autoDisplayRadio">
+            
+  <widget class="QRadioButton" name="autoDisplayRadio">
                <property name="text">
                 <string>自动</string>
                </property>
                <property name="checked">
                 <bool>true</bool>
                </property>
-              </widget>
+  
+            </widget>
              </item>
              <item>
               <widget class="QRadioButton" name="textDisplayRadio">
                <property name="text">
                 <string>文本</string>
-               </property>
+              
+ </property>
               </widget>
              </item>
              <item>
               <widget class="QRadioButton" name="imageDisplayRadio">
                <property name="text">
                 <string>图像</string>
-               </property>
+           
+    </property>
               </widget>
              </item>
              <item>
               <widget class="QRadioButton" name="videoDisplayRadio">
                <property name="text">
                 <string>视频</string>
-               </property>
+        
+       </property>
               </widget>
              </item>
             </layout>
@@ -402,34 +458,39 @@
            <item>
             <layout class="QHBoxLayout" name="horizontalLayout">
              <item>
-              <widget class="QRadioButton" name="asciiDisplayRadio">
+     
+         <widget class="QRadioButton" name="asciiDisplayRadio">
                <property name="text">
                 <string>ASCII</string>
                </property>
                <property name="checked">
                 <bool>true</bool>
-               </property>
+          
+     </property>
               </widget>
              </item>
              <item>
               <widget class="QRadioButton" name="hexDisplayRadio">
                <property name="text">
                 <string>HEX</string>
-               </property>
+       
+        </property>
               </widget>
              </item>
              <item>
               <widget class="QRadioButton" name="decimalDisplayRadio">
                <property name="text">
                 <string>十进制</string>
-               </property>
+    
+           </property>
               </widget>
              </item>
             </layout>
            </item>
            <item>
             <widget class="QCheckBox" name="autoWrapCheckBox">
-             <property name="text">
+             <property 
+name="text">
               <string>日志区自动换行</string>
              </property>
              <property name="checked">
@@ -437,7 +498,8 @@
              </property>
             </widget>
            </item>
-           <item>
+         
+  <item>
             <widget class="QPushButton" name="clearReceiveButton">
              <property name="text">
               <string>清空日志和计数</string>
@@ -446,7 +508,8 @@
            </item>
           </layout>
          </widget>
-        </item>
+ 
+       </item>
         <item>
          <widget class="QGroupBox" name="sendSettingsBox">
           <property name="title">
@@ -455,20 +518,23 @@
           <layout class="QVBoxLayout" name="verticalLayout_3">
            <item>
             <layout class="QHBoxLayout" name="horizontalLayout_2">
-             <item>
+     
+        <item>
               <widget class="QRadioButton" name="asciiSendRadio">
                <property name="text">
                 <string>ASCII</string>
                </property>
                <property name="checked">
-                <bool>true</bool>
+             
+   <bool>true</bool>
                </property>
               </widget>
              </item>
              <item>
               <widget class="QRadioButton" name="hexSendRadio">
                <property name="text">
-                <string>HEX</string>
+          
+      <string>HEX</string>
                </property>
               </widget>
              </item>
@@ -476,7 +542,8 @@
            </item>
            <item>
             <widget class="QCheckBox" name="cyclicSendCheckBox">
-             <property name="text">
+    
+         <property name="text">
               <string>循环周期</string>
              </property>
             </widget>
@@ -484,27 +551,31 @@
            <item>
             <layout class="QHBoxLayout" name="horizontalLayout_4">
              <item>
-              <widget class="QSpinBox" name="sendIntervalSpinBox">
+  
+            <widget class="QSpinBox" name="sendIntervalSpinBox">
                <property name="enabled">
                 <bool>false</bool>
                </property>
                <property name="maximum">
                 <number>1000000</number>
-               </property>
+       
+        </property>
                <property name="value">
                 <number>1000</number>
                </property>
               </widget>
              </item>
              <item>
-              <widget class="QLabel" name="label_6">
+     
+         <widget class="QLabel" name="label_6">
                <property name="text">
                 <string>ms</string>
                </property>
               </widget>
              </item>
             </layout>
-           </item>
+   
+        </item>
           </layout>
          </widget>
         </item>
@@ -514,7 +585,8 @@
            <enum>Qt::Vertical</enum>
           </property>
           <property name="sizeHint" stdset="0">
-           <size>
+   
+        <size>
             <width>20</width>
             <height>40</height>
            </size>
@@ -524,7 +596,8 @@
        </layout>
       </widget>
       <widget class="QWidget" name="rightPanelWidget" native="true">
-       <layout class="QVBoxLayout" name="verticalLayout_4">
+       <layout 
+class="QVBoxLayout" name="verticalLayout_4">
         <property name="leftMargin">
          <number>0</number>
         </property>
@@ -536,7 +609,8 @@
         </property>
         <property name="bottomMargin">
          <number>0</number>
-        </property>
+   
+     </property>
         <item>
          <widget class="QGroupBox" name="imageDisplayBox">
           <property name="title">
@@ -545,55 +619,64 @@
           <layout class="QVBoxLayout" name="verticalLayout_9">
            <item>
             <widget class="QStackedWidget" name="displayStackedWidget">
-             <property name="currentIndex">
+       
+      <property name="currentIndex">
               <number>1</number>
              </property>
              <widget class="QWidget" name="videoPage">
               <layout class="QVBoxLayout" name="verticalLayout_10">
                <property name="spacing">
                 <number>0</number>
-               </property>
+   
+            </property>
                <property name="leftMargin">
                 <number>0</number>
                </property>
                <property name="topMargin">
                 <number>0</number>
-               </property>
+         
+      </property>
                <property name="rightMargin">
                 <number>0</number>
                </property>
                <property name="bottomMargin">
                 <number>0</number>
-               </property>
+               
+</property>
                <item>
                 <widget class="QVideoWidget" name="videoDisplayWidget" native="true">
                  <property name="sizePolicy">
                   <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
                    <horstretch>0</horstretch>
-                   <verstretch>1</verstretch>
+         
+          <verstretch>1</verstretch>
                   </sizepolicy>
                  </property>
                  <property name="styleSheet">
                   <string notr="true">background-color: rgb(0, 0, 0);</string>
-                 </property>
+               
+  </property>
                 </widget>
                </item>
               </layout>
              </widget>
              <widget class="QWidget" name="imagePage">
               <layout class="QGridLayout" name="gridLayout">
-               <item row="0" column="0">
+         
+      <item row="0" column="0">
                 <widget class="QLabel" name="imageDisplayLabel">
                  <property name="styleSheet">
                   <string notr="true">background-color: rgb(0, 0, 0);</string>
                  </property>
-                 <property name="text">
+                 
+<property name="text">
                   <string/>
                  </property>
                  <property name="alignment">
                   <set>Qt::AlignCenter</set>
                  </property>
-                </widget>
+           
+     </widget>
                </item>
                <item row="0" column="0">
                 <widget class="QLabel" name="resolutionLabel">
@@ -606,28 +689,47 @@ padding: 2px;</string>
                   <string/>
                  </property>
                  <property name="alignment">
-                  <set>Qt::AlignRight|Qt::AlignTop|Qt::AlignTrailing</set>
+         
+         <set>Qt::AlignRight|Qt::AlignTop|Qt::AlignTrailing</set>
                  </property>
                 </widget>
                </item>
-              </layout>
+               <item row="0" column="0">
+                <widget class="QLabel" name="fingerprintStatusLabel">
+                 <property name="styleSheet">
+                  <string notr="true">background-color: rgba(0, 0, 0, 150);
+color: white;
+padding: 2px;</string>
+                 </property>
+                 <property name="text">
+                  <string/>
+                 </property>
+                 <property name="alignment">
+                  <set>Qt::AlignLeft|Qt::AlignTop|Qt::AlignTrailing</set>
+                 </property>
+                </widget>
+               </item>
+               </layout>
              </widget>
             </widget>
-           </item>
+    
+       </item>
            <item>
             <layout class="QHBoxLayout" name="horizontalLayout_8">
              <item>
               <widget class="QPushButton" name="playPauseButton">
                <property name="text">
                 <string>播放</string>
-               </property>
+       
+        </property>
               </widget>
              </item>
              <item>
               <widget class="QSlider" name="progressSlider">
                <property name="orientation">
                 <enum>Qt::Horizontal</enum>
-               </property>
+    
+           </property>
               </widget>
              </item>
             </layout>
@@ -635,26 +737,30 @@ padding: 2px;</string>
            <item>
             <layout class="QHBoxLayout" name="horizontalLayout_7">
              <item>
-              <spacer name="horizontalSpacer_2">
+ 
+             <spacer name="horizontalSpacer_2">
                <property name="orientation">
                 <enum>Qt::Horizontal</enum>
                </property>
                <property name="sizeHint" stdset="0">
                 <size>
-                 <width>40</width>
+      
+           <width>40</width>
                  <height>20</height>
                 </size>
                </property>
               </spacer>
              </item>
              <item>
-              <widget class="QPushButton" name="clearDisplayButton">
+ 
+             <widget class="QPushButton" name="clearDisplayButton">
                <property name="text">
                 <string>清除显示</string>
                </property>
               </widget>
              </item>
-            </layout>
+           
+ </layout>
            </item>
           </layout>
          </widget>
@@ -664,7 +770,8 @@ padding: 2px;</string>
           <property name="currentIndex">
            <number>0</number>
           </property>
-          <widget class="QWidget" name="receiveTab">
+          
+<widget class="QWidget" name="receiveTab">
            <attribute name="title">
             <string>接收日志</string>
            </attribute>
@@ -672,14 +779,16 @@ padding: 2px;</string>
             <item>
              <widget class="QTextEdit" name="receiveDataDisplayEdit">
               <property name="font">
-               <font>
+        
+       <font>
                 <family>Consolas</family>
                </font>
               </property>
               <property name="readOnly">
                <bool>true</bool>
               </property>
-             </widget>
+    
+         </widget>
             </item>
            </layout>
           </widget>
@@ -687,14 +796,16 @@ padding: 2px;</string>
            <attribute name="title">
             <string>发送日志</string>
            </attribute>
-           <layout class="QVBoxLayout" name="verticalLayout_6">
+           
+<layout class="QVBoxLayout" name="verticalLayout_6">
             <item>
              <widget class="QTextEdit" name="sentDataDisplayEdit">
               <property name="font">
                <font>
                 <family>Consolas</family>
                </font>
-              </property>
+          
+    </property>
               <property name="readOnly">
                <bool>true</bool>
               </property>
@@ -702,7 +813,8 @@ padding: 2px;</string>
             </item>
            </layout>
           </widget>
-         </widget>
+      
+   </widget>
         </item>
         <item>
          <widget class="QPlainTextEdit" name="sendDataEdit">
@@ -712,7 +824,8 @@ padding: 2px;</string>
             <height>100</height>
            </size>
           </property>
-          <property name="placeholderText">
+   
+       <property name="placeholderText">
            <string>输入要发送的文本数据...</string>
           </property>
          </widget>
@@ -721,7 +834,8 @@ padding: 2px;</string>
          <layout class="QHBoxLayout" name="horizontalLayout_5">
           <item>
            <spacer name="horizontalSpacer">
-            <property name="orientation">
+            <property 
+name="orientation">
              <enum>Qt::Horizontal</enum>
             </property>
             <property name="sizeHint" stdset="0">
@@ -729,7 +843,8 @@ padding: 2px;</string>
               <width>40</width>
               <height>20</height>
              </size>
-            </property>
+       
+     </property>
            </spacer>
           </item>
           <item>
@@ -738,7 +853,8 @@ padding: 2px;</string>
              <string>发送</string>
             </property>
            </widget>
-          </item>
+  
+        </item>
          </layout>
         </item>
        </layout>
@@ -766,7 +882,8 @@ padding: 2px;</string>
    <slot>setEnabled(bool)</slot>
    <hints>
     <hint type="sourcelabel">
-     <x>124</x>
+ 
+    <x>124</x>
      <y>596</y>
     </hint>
     <hint type="destinationlabel">
