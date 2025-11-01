@@ -932,11 +932,15 @@ void MainWindow::updateFingerprintStatus(const QByteArray &statusBytes)
             // 设置红色背景
             ui->fingerprintStatusLabel->setStyleSheet("background-color: rgba(220, 0, 0, 150); color: white; padding: 2px;");
             break;
-        case 0x000011: // 00 00 11
-            ui->fingerprintStatusLabel->setText("状态: GOGOGO");
+        case 0x000001: // 00 00 11
+            ui->fingerprintStatusLabel->setText("状态: 指纹验证中");
             // 设置蓝色背景
             ui->fingerprintStatusLabel->setStyleSheet("background-color: rgba(0, 0, 200, 150); color: white; padding: 2px;");
             break;
+        case 0x000000: // 00 00 00
+            ui->fingerprintStatusLabel->setText("状态: 无指纹数据");
+            // 设置灰色背景
+            ui->fingerprintStatusLabel->setStyleSheet("background-color: rgba(150, 150, 150, 150); color: white; padding: 2px;");
         default:
             QString statusHex = QString::fromLatin1(statusBytes.toHex(' '));
             ui->fingerprintStatusLabel->setText(QString("状态: 未知 (%1)").arg(statusHex));
