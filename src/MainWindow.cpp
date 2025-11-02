@@ -977,13 +977,13 @@ void MainWindow::updateFingerprintStatus(const QByteArray &statusBytes, const QI
     switch (statusCode) {
         case 0x010001: // 01 00 01
             ui->fingerprintStatusLabel->setText("状态: 指纹正确");
-            // 设置绿色背景
-            ui->fingerprintStatusLabel->setStyleSheet("background-color: rgba(0, 180, 0, 150); color: white; padding: 2px;");
+            // 设置亮绿色字体，背景透明
+            ui->fingerprintStatusLabel->setStyleSheet("background-color: transparent; color: rgb(0, 220, 0); padding: 2px;");
             break;
         case 0x000101: // 00 01 01
             ui->fingerprintStatusLabel->setText("状态: 指纹错误");
-            // 设置红色背景
-            ui->fingerprintStatusLabel->setStyleSheet("background-color: rgba(220, 0, 0, 150); color: white; padding: 2px;");
+            // 设置亮红色字体，背景透明
+            ui->fingerprintStatusLabel->setStyleSheet("background-color: transparent; color: rgb(255, 0, 0); padding: 2px;");
             
             // ******** 新增：保存错误帧 ********
             if (!currentFrame.isNull()) {
@@ -992,26 +992,25 @@ void MainWindow::updateFingerprintStatus(const QByteArray &statusBytes, const QI
             break;
         case 0x000001: // 00 00 01
             ui->fingerprintStatusLabel->setText("状态: 指纹验证中");
-            // 设置蓝色背景
-            ui->fingerprintStatusLabel->setStyleSheet("background-color: rgba(0, 0, 200, 150); color: white; padding: 2px;");
+            // 设置亮蓝色字体，背景透明
+            ui->fingerprintStatusLabel->setStyleSheet("background-color: transparent; color: rgb(0, 150, 255); padding: 2px;");
             break;
         case 0x000000: // 00 00 00
             ui->fingerprintStatusLabel->setText("状态: 无指纹数据");
-            // 设置灰色背景
-            ui->fingerprintStatusLabel->setStyleSheet("background-color: rgba(150, 150, 150, 150); color: white; padding: 2px;");
-            break; // <-- ******** 修复：添加了缺失的 break ********
+            // 设置白色字体，背景透明
+            ui->fingerprintStatusLabel->setStyleSheet("background-color: transparent; color: white; padding: 2px;");
+            break; 
         default:
             QString statusHex = QString::fromLatin1(statusBytes.toHex(' '));
             ui->fingerprintStatusLabel->setText(QString("状态: 未知 (%1)").arg(statusHex));
-            // 默认背景
-            ui->fingerprintStatusLabel->setStyleSheet("background-color: rgba(0, 0, 0, 150); color: white; padding: 2px;");
+            // 默认白色字体，背景透明
+            ui->fingerprintStatusLabel->setStyleSheet("background-color: transparent; color: white; padding: 2px;");
             break;
     }
 
     // 缓存这个新状态，以便下一帧进行比较
     m_lastFingerprintStatus = statusCode;
 }
-// ******** END: 优化和修改后的函数 ********
 
 // ******** START: 新增：保存错误帧函数 ********
 void MainWindow::saveErrorFrame(const QImage &image)
