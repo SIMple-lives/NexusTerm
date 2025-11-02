@@ -42,6 +42,9 @@ MainWindow::MainWindow(QWidget *parent)
     , m_videoStreamHeight(0)
     , m_framesToSkip(0)
     , m_processedFrameCount(0)
+    , m_lastFingerprintStatus(0xFFFFFFFF) // <-- ******** 初始化：状态缓存 ********
+    , m_fpsCounter(0)                 // <-- ******** 初始化：FPS计数器 ********
+    , m_currentFps(0)                 // <-- ******** 初始化：当前FPS ********
 {
     ui->setupUi(this);
 
@@ -96,6 +99,12 @@ MainWindow::MainWindow(QWidget *parent)
     
     connect(ui->clientListWidget, &QListWidget::currentItemChanged, this, &MainWindow::updateControlsState);
 
+    // ******** START: 新增：初始化和连接FPS定时器 ********
+    m_fpsTimer = new QTimer(this);
+    m_fpsTimer->setInterval(1000); // 1秒触发一次
+    connect(m_fpsTimer, &QTimer::timeout, this, &MainWindow::updateFpsDisplay);
+    // ******** END: 新增 ********
+
     ui->displayStackedWidget->setCurrentIndex(0);
 }
 
@@ -145,7 +154,7 @@ void MainWindow::initUI() {
     
     // 初始化时清空分辨率标签
     ui->resolutionLabel->clear();
-    ui->fingerprintStatusLabel->clear(); // <-- ******** 已添加 ********
+    ui->fingerprintStatusLabel->clear(); // <-- 已添加
 
     #ifndef Q_OS_WIN
         if(ui->useWinSockCheckBox) {
@@ -560,8 +569,15 @@ void MainWindow::on_clearDisplayButton_clicked()
 {
     m_mediaPlayer->stop();
     ui->imageDisplayLabel->clear();
-    ui->resolutionLabel->clear(); // 同时清空分辨率
-    ui->fingerprintStatusLabel->clear(); // <-- ******** 已添加 ********
+    ui->resolutionLabel->clear(); 
+    ui->fingerprintStatusLabel->clear(); 
+    m_lastFingerprintStatus = 0xFFFFFFFF; // <-- ******** 重置：状态缓存 ********
+    
+    // ******** START: 新增：重置FPS计数器 ********
+    m_fpsCounter = 0;
+    m_currentFps = 0;
+    // ******** END: 新增 ********
+
     ui->displayStackedWidget->setCurrentIndex(0);
     if (m_tempMediaFile) {
         m_tempMediaFile->remove();
@@ -579,6 +595,12 @@ void MainWindow::on_playPauseButton_clicked()
             m_isUdpStreaming = true;
             m_videoFrameBuffer.clear(); // 清空旧的缓冲
 
+            // ******** START: 新增：启动FPS定时器和重置计数器 ********
+            m_fpsCounter = 0;
+            m_currentFps = 0;
+            m_fpsTimer->start();
+            // ******** END: 新增 ********
+
             // 发送1字节的启动命令 0x01
             QByteArray startCommand;
             startCommand.append(0x01);
@@ -591,11 +613,16 @@ void MainWindow::on_playPauseButton_clicked()
             m_isUdpStreaming = false;
             
             m_videoHeaderReceived = false; 
+
+            // ******** START: 新增：停止FPS定时器 ********
+            m_fpsTimer->stop();
+            // ******** END: 新增 ********
             
             ui->playPauseButton->setText("播放");
             m_statusLabel->setText(QString("UDP已绑定本地端口: %1").arg(ui->udpBindPortSpinBox->value()));
             ui->resolutionLabel->clear();
-            ui->fingerprintStatusLabel->clear(); // <-- ******** 已添加 ********
+            ui->fingerprintStatusLabel->clear(); 
+            m_lastFingerprintStatus = 0xFFFFFFFF; // <-- ******** 重置：状态缓存 ********
             
             // 清空视频缓冲区，丢弃所有已接收但未处理的数据
             m_videoFrameBuffer.clear();
@@ -766,11 +793,8 @@ void MainWindow::processVideoFrameBuffer() {
         m_videoFrameBuffer.remove(0, headerPos);
 
         // --- 步骤 2: 验证元数据长度 ---
-        // ******** START: 已修改 ********
-        // 原长度为 8 (4头+4分辨率)，新长度为 13 (4头+4分辨率+5状态)
         if (m_videoFrameBuffer.size() < 13) {
             // 数据不足以解析出宽度、高度和状态，退出等待
-        // ******** END: 已修改 ********
             return;
         }
 
@@ -786,7 +810,6 @@ void MainWindow::processVideoFrameBuffer() {
             continue; // 继续外层while循环，寻找下一个有效的帧头
         }
         
-        // ******** START: 已添加新步骤 3.5 ********
         // --- 步骤 3.5: 解析并验证状态头 ---
         const uchar* statusHeader = reinterpret_cast<const uchar*>(m_videoFrameBuffer.constData() + 8);
 
@@ -797,19 +820,9 @@ void MainWindow::processVideoFrameBuffer() {
             continue; // 继续外层while循环，寻找下一个有效的帧头
         }
         
-        // 提取 3 字节的状态码 (位于 13 字节头中的第 9, 10, 11 字节)
-        QByteArray statusBytes = m_videoFrameBuffer.mid(9, 3);
-        // 更新UI
-        updateFingerprintStatus(statusBytes);
-        // ******** END: 已添加新步骤 3.5 ********
-
-
         // --- 步骤 4: 验证数据帧的完整性 ---
         int singleFrameSize = width * height * 2;
-        // ******** START: 已修改 ********
-        // 原 totalFrameSize = 8 + singleFrameSize
         int totalFrameSize = 13 + singleFrameSize; // 整个数据帧的大小 = 元数据(13) + 像素数据
-        // ******** END: 已修改 ********
 
         if (m_videoFrameBuffer.size() < totalFrameSize) {
             // 缓冲区的数据还不够一整帧，退出等待
@@ -817,8 +830,6 @@ void MainWindow::processVideoFrameBuffer() {
         }
 
         // --- 步骤 5: 最终校验，检查帧内部是否混入下一个帧头 ---
-        // 我们只检查当前帧的像素数据部分是否意外包含帧头
-        // 搜索的起始位置是当前帧头之后 (比如从第1个字节开始)
         int nextHeaderPos = m_videoFrameBuffer.indexOf(frameHeader, 1);
         if (nextHeaderPos != -1 && nextHeaderPos < totalFrameSize) {
             // 在当前帧结束前就出现了下一个帧头，说明当前帧因丢包而损坏
@@ -828,10 +839,7 @@ void MainWindow::processVideoFrameBuffer() {
         }
 
         // --- 所有检查通过，解码并显示图像 ---
-        // ******** START: 已修改 ********
-        // 原 imageDataBytes = m_videoFrameBuffer.mid(8, singleFrameSize)
         QByteArray imageDataBytes = m_videoFrameBuffer.mid(13, singleFrameSize);
-        // ******** END: 已修改 ********
 
         // 修正字节序
         for(int i = 0; i < imageDataBytes.size(); i += 2) {
@@ -852,7 +860,20 @@ void MainWindow::processVideoFrameBuffer() {
             if (ui->displayStackedWidget->currentIndex() != 1) {
                  ui->displayStackedWidget->setCurrentIndex(1);
             }
-            ui->resolutionLabel->setText(QString("%1 x %2").arg(width).arg(height));
+            
+            // ******** START: 修改：更新FPS和分辨率 ********
+            m_videoStreamWidth = width;
+            m_videoStreamHeight = height;
+            // 立即更新标签文本（而不是等待定时器）
+            updateFpsDisplay(); 
+            
+            // 提取状态码并检查
+            QByteArray statusBytes = m_videoFrameBuffer.mid(9, 3);
+            updateFingerprintStatus(statusBytes, image); // 传入当前帧
+            
+            m_fpsCounter++; // 帧率计数器+1
+            // ******** END: 修改 ********
+
         } else {
             qDebug() << "[Video ERROR] QImage无法从数据加载。";
         }
@@ -861,6 +882,28 @@ void MainWindow::processVideoFrameBuffer() {
         m_videoFrameBuffer.remove(0, totalFrameSize);
     }
 }
+
+// ******** START: 新增：FPS显示函数 ********
+void MainWindow::updateFpsDisplay() {
+    // 这个函数现在由定时器（每秒）和processVideoFrameBuffer（每帧）调用
+    
+    // 如果是定时器触发，则更新FPS值
+    if (sender() == m_fpsTimer) {
+        m_currentFps = m_fpsCounter;
+        m_fpsCounter = 0;
+    }
+
+    // 任何情况下（无论是定时器还是新帧）都更新标签文本
+    if (m_isUdpStreaming) {
+        ui->resolutionLabel->setText(QString("%1 x %2 @ %3 FPS")
+                                     .arg(m_videoStreamWidth)
+                                     .arg(m_videoStreamHeight)
+                                     .arg(m_currentFps));
+    } else {
+        ui->resolutionLabel->clear();
+    }
+}
+// ******** END: 新增 ********
 
 void MainWindow::onUdpReassemblyTimeout() {
     if (m_udpBuffer.isEmpty()) return;
@@ -912,8 +955,8 @@ void MainWindow::on_disconnectClientButton_clicked() {
     }
 }
 
-// ******** START: 已添加的新函数 ********
-void MainWindow::updateFingerprintStatus(const QByteArray &statusBytes)
+// ******** START: 优化和修改后的函数 ********
+void MainWindow::updateFingerprintStatus(const QByteArray &statusBytes, const QImage &currentFrame)
 {
     if (statusBytes.size() < 3) return;
 
@@ -921,6 +964,14 @@ void MainWindow::updateFingerprintStatus(const QByteArray &statusBytes)
     const uchar* data = reinterpret_cast<const uchar*>(statusBytes.constData());
     uint32_t statusCode = (data[0] << 16) | (data[1] << 8) | data[2];
 
+    // --- 核心优化 ---
+    // 如果当前帧的状态和上一帧的状态相同，则什么也不做，直接返回。
+    if (statusCode == m_lastFingerprintStatus) {
+        return;
+    }
+
+    // --- 状态已改变 ---
+    // 只有在状态不同时，才执行 setText 和 setStyleSheet
     switch (statusCode) {
         case 0x010001: // 01 00 01
             ui->fingerprintStatusLabel->setText("状态: 指纹正确");
@@ -931,8 +982,13 @@ void MainWindow::updateFingerprintStatus(const QByteArray &statusBytes)
             ui->fingerprintStatusLabel->setText("状态: 指纹错误");
             // 设置红色背景
             ui->fingerprintStatusLabel->setStyleSheet("background-color: rgba(220, 0, 0, 150); color: white; padding: 2px;");
+            
+            // ******** 新增：保存错误帧 ********
+            if (!currentFrame.isNull()) {
+                saveErrorFrame(currentFrame);
+            }
             break;
-        case 0x000001: // 00 00 11
+        case 0x000001: // 00 00 01
             ui->fingerprintStatusLabel->setText("状态: 指纹验证中");
             // 设置蓝色背景
             ui->fingerprintStatusLabel->setStyleSheet("background-color: rgba(0, 0, 200, 150); color: white; padding: 2px;");
@@ -941,6 +997,7 @@ void MainWindow::updateFingerprintStatus(const QByteArray &statusBytes)
             ui->fingerprintStatusLabel->setText("状态: 无指纹数据");
             // 设置灰色背景
             ui->fingerprintStatusLabel->setStyleSheet("background-color: rgba(150, 150, 150, 150); color: white; padding: 2px;");
+            break; // <-- ******** 修复：这里缺少一个 break ********
         default:
             QString statusHex = QString::fromLatin1(statusBytes.toHex(' '));
             ui->fingerprintStatusLabel->setText(QString("状态: 未知 (%1)").arg(statusHex));
@@ -948,4 +1005,39 @@ void MainWindow::updateFingerprintStatus(const QByteArray &statusBytes)
             ui->fingerprintStatusLabel->setStyleSheet("background-color: rgba(0, 0, 0, 150); color: white; padding: 2px;");
             break;
     }
+
+    // 缓存这个新状态，以便下一帧进行比较
+    m_lastFingerprintStatus = statusCode;
 }
+// ******** END: 优化和修改后的函数 ********
+
+// ******** START: 新增：保存错误帧函数 ********
+void MainWindow::saveErrorFrame(const QImage &image)
+{
+    // 1. 定义文件夹路径 (位于程序可执行文件旁边)
+    QString dirPath = QDir(QApplication::applicationDirPath()).filePath("error_frames");
+    QDir dir(dirPath);
+
+    // 2. 检查文件夹是否存在，不存在则创建
+    if (!dir.exists()) {
+        if (!dir.mkpath(".")) {
+            m_statusLabel->setText("错误: 创建错误帧文件夹失败!");
+            qWarning() << "Failed to create directory:" << dirPath;
+            return;
+        }
+    }
+
+    // 3. 生成文件名
+    QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss_zzz");
+    QString filePath = dir.filePath(QString("error_frame_%1.png").arg(timestamp));
+
+    // 4. 保存图片
+    if (image.save(filePath, "PNG")) {
+        m_statusLabel->setText(QString("错误帧已保存: %1").arg(QDir::toNativeSeparators(filePath)));
+        qDebug() << "Saved error frame to:" << filePath;
+    } else {
+        m_statusLabel->setText("错误: 保存错误帧失败!");
+        qWarning() << "Failed to save image to:" << filePath;
+    }
+}
+// ******** END: 新增 ********

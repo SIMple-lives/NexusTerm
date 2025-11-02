@@ -1,9 +1,13 @@
 #ifndef WINSOCKUDPMANAGER_H
 #define WINSOCKUDPMANAGER_H
 
-#ifdef Q_OS_WIN
-
+// ******** 关键修改 ********
+// 必须先包含一个Qt头文件，Q_OS_WIN 宏才会被定义。
+// IUdpManager.h 包含了 QObject，QObject 内部会包含 QtGlobal。
 #include "IUdpManager.h"
+
+#ifdef Q_OS_WIN // <-- 现在这个检查可以正常工作了
+
 #include <QThread>
 #include <winsock2.h> // 包含WinSock头文件
 

@@ -1,6 +1,10 @@
-#ifdef Q_OS_WIN
-
+// ******** 关键修改 ********
+// 必须先包含 WinSockUdpManager.h (它又包含了 IUdpManager.h)
+// 这样 Q_OS_WIN 宏才会被定义
 #include "WinSockUdpManager.h"
+
+#ifdef Q_OS_WIN // <-- 现在这个检查可以正常工作了
+
 #include <ws2tcpip.h>
 #include <QDebug>
 
