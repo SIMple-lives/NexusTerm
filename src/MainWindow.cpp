@@ -17,6 +17,8 @@
 #include <QDataStream>
 #include <QDebug>
 #include <memory>
+// ******** 新增：包含 QApplication 以便获取程序路径 ********
+#include <QApplication> 
 
 #include "QtUdpManager.h"
 #ifdef Q_OS_WIN
@@ -42,9 +44,9 @@ MainWindow::MainWindow(QWidget *parent)
     , m_videoStreamHeight(0)
     , m_framesToSkip(0)
     , m_processedFrameCount(0)
-    , m_lastFingerprintStatus(0xFFFFFFFF) // <-- ******** 初始化：状态缓存 ********
-    , m_fpsCounter(0)                 // <-- ******** 初始化：FPS计数器 ********
-    , m_currentFps(0)                 // <-- ******** 初始化：当前FPS ********
+    , m_lastFingerprintStatus(0xFFFFFFFF) // <-- 初始化：状态缓存
+    , m_fpsCounter(0)                 // <-- 初始化：FPS计数器
+    , m_currentFps(0)                 // <-- 初始化：当前FPS
 {
     ui->setupUi(this);
 
@@ -99,11 +101,11 @@ MainWindow::MainWindow(QWidget *parent)
     
     connect(ui->clientListWidget, &QListWidget::currentItemChanged, this, &MainWindow::updateControlsState);
 
-    // ******** START: 新增：初始化和连接FPS定时器 ********
+    // ******** START: 初始化和连接FPS定时器 ********
     m_fpsTimer = new QTimer(this);
     m_fpsTimer->setInterval(1000); // 1秒触发一次
     connect(m_fpsTimer, &QTimer::timeout, this, &MainWindow::updateFpsDisplay);
-    // ******** END: 新增 ********
+    // ******** END: ********
 
     ui->displayStackedWidget->setCurrentIndex(0);
 }
@@ -154,7 +156,7 @@ void MainWindow::initUI() {
     
     // 初始化时清空分辨率标签
     ui->resolutionLabel->clear();
-    ui->fingerprintStatusLabel->clear(); // <-- 已添加
+    ui->fingerprintStatusLabel->clear(); 
 
     #ifndef Q_OS_WIN
         if(ui->useWinSockCheckBox) {
@@ -571,12 +573,12 @@ void MainWindow::on_clearDisplayButton_clicked()
     ui->imageDisplayLabel->clear();
     ui->resolutionLabel->clear(); 
     ui->fingerprintStatusLabel->clear(); 
-    m_lastFingerprintStatus = 0xFFFFFFFF; // <-- ******** 重置：状态缓存 ********
+    m_lastFingerprintStatus = 0xFFFFFFFF; // <-- 重置：状态缓存
     
-    // ******** START: 新增：重置FPS计数器 ********
+    // ******** START: 重置FPS计数器 ********
     m_fpsCounter = 0;
     m_currentFps = 0;
-    // ******** END: 新增 ********
+    // ******** END: ********
 
     ui->displayStackedWidget->setCurrentIndex(0);
     if (m_tempMediaFile) {
@@ -595,11 +597,11 @@ void MainWindow::on_playPauseButton_clicked()
             m_isUdpStreaming = true;
             m_videoFrameBuffer.clear(); // 清空旧的缓冲
 
-            // ******** START: 新增：启动FPS定时器和重置计数器 ********
+            // ******** START: 启动FPS定时器和重置计数器 ********
             m_fpsCounter = 0;
             m_currentFps = 0;
             m_fpsTimer->start();
-            // ******** END: 新增 ********
+            // ******** END: ********
 
             // 发送1字节的启动命令 0x01
             QByteArray startCommand;
@@ -614,15 +616,15 @@ void MainWindow::on_playPauseButton_clicked()
             
             m_videoHeaderReceived = false; 
 
-            // ******** START: 新增：停止FPS定时器 ********
+            // ******** START: 停止FPS定时器 ********
             m_fpsTimer->stop();
-            // ******** END: 新增 ********
+            // ******** END: ********
             
             ui->playPauseButton->setText("播放");
             m_statusLabel->setText(QString("UDP已绑定本地端口: %1").arg(ui->udpBindPortSpinBox->value()));
             ui->resolutionLabel->clear();
             ui->fingerprintStatusLabel->clear(); 
-            m_lastFingerprintStatus = 0xFFFFFFFF; // <-- ******** 重置：状态缓存 ********
+            m_lastFingerprintStatus = 0xFFFFFFFF; // <-- 重置：状态缓存
             
             // 清空视频缓冲区，丢弃所有已接收但未处理的数据
             m_videoFrameBuffer.clear();
@@ -997,7 +999,7 @@ void MainWindow::updateFingerprintStatus(const QByteArray &statusBytes, const QI
             ui->fingerprintStatusLabel->setText("状态: 无指纹数据");
             // 设置灰色背景
             ui->fingerprintStatusLabel->setStyleSheet("background-color: rgba(150, 150, 150, 150); color: white; padding: 2px;");
-            break; // <-- ******** 修复：这里缺少一个 break ********
+            break; // <-- ******** 修复：添加了缺失的 break ********
         default:
             QString statusHex = QString::fromLatin1(statusBytes.toHex(' '));
             ui->fingerprintStatusLabel->setText(QString("状态: 未知 (%1)").arg(statusHex));

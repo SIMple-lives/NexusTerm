@@ -696,7 +696,8 @@ padding: 2px;</string>
                </item>
                <item row="0" column="0">
                 <widget class="QLabel" name="fingerprintStatusLabel">
-                 <property name="styleSheet">
+        
+         <property name="styleSheet">
                   <string notr="true">background-color: rgba(0, 0, 0, 150);
 color: white;
 padding: 2px;</string>
@@ -705,7 +706,8 @@ padding: 2px;</string>
                   <string/>
                  </property>
                  <property name="alignment">
-                  <set>Qt::AlignLeft|Qt::AlignTop|Qt::AlignTrailing</set>
+         
+                          <set>Qt::AlignLeft|Qt::AlignTop</set>
                  </property>
                 </widget>
                </item>
@@ -736,9 +738,10 @@ padding: 2px;</string>
            </item>
            <item>
             <layout class="QHBoxLayout" name="horizontalLayout_7">
-             <item>
+             
+<item>
  
-             <spacer name="horizontalSpacer_2">
+              <spacer name="horizontalSpacer_2">
                <property name="orientation">
                 <enum>Qt::Horizontal</enum>
                </property>
@@ -751,9 +754,10 @@ padding: 2px;</string>
                </property>
               </spacer>
              </item>
-             <item>
+             
+<item>
  
-             <widget class="QPushButton" name="clearDisplayButton">
+              <widget class="QPushButton" name="clearDisplayButton">
                <property name="text">
                 <string>清除显示</string>
                </property>
@@ -881,9 +885,10 @@ name="orientation">
    <receiver>sendIntervalSpinBox</receiver>
    <slot>setEnabled(bool)</slot>
    <hints>
-    <hint type="sourcelabel">
+    <hint 
+type="sourcelabel">
  
-    <x>124</x>
+     <x>124</x>
      <y>596</y>
     </hint>
     <hint type="destinationlabel">
