@@ -1,4 +1,3 @@
-// ******** 关键修改 ********
 // 必须先包含 WinSockUdpManager.h (它又包含了 IUdpManager.h)
 // 这样 Q_OS_WIN 宏才会被定义
 #include "WinSockUdpManager.h"

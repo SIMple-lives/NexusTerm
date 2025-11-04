@@ -74,7 +74,7 @@ private slots:
     void onUdpReassemblyTimeout();
     void onTcpReassemblyTimeout();
     void sendFileChunk();
-    void updateFpsDisplay(); // <-- ******** 新增：用于显示FPS的槽函数 ********
+    void updateFpsDisplay();
 
     // 媒体播放器状态更新槽函数
     void updatePlaybackState(QMediaPlayer::PlaybackState state);
@@ -92,7 +92,7 @@ private:
     void updateFingerprintStatus(const QByteArray &statusBytes, const QImage &currentFrame); 
     void handleIncomingData(const QByteArray &data);
     void processVideoFrameBuffer();
-    void saveErrorFrame(const QImage &image); // <-- ******** 新增：用于保存错误帧 ********
+    void saveErrorFrame(const QImage &image);
 
 private:
     Ui::MainWindow *ui;
@@ -110,7 +110,7 @@ private:
     QTimer *m_autoSendTimer;
     QTimer *m_portScanTimer;
     QTimer *m_fileSendTimer;
-    QTimer *m_fpsTimer; // <-- ******** 新增：FPS定时器 ********
+    QTimer *m_fpsTimer;
 
     // 状态栏
     QLabel *m_statusLabel;
@@ -143,7 +143,6 @@ private:
     int m_framesToSkip;         // 目标跳过的帧数
     int m_processedFrameCount;  // 当前已处理的帧数
 
-    // <-- ******** 新增：优化和FPS相关的成员变量 ********
     uint32_t m_lastFingerprintStatus; // 用于缓存指纹状态，避免重复刷新UI
     int m_fpsCounter;                 // FPS 计数器
     int m_currentFps;                 // 当前显示的FPS

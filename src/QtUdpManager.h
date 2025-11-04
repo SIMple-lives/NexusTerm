@@ -1,4 +1,3 @@
-// QtUdpManager.h (修改自 UdpManager.h)
 #ifndef QTUDPMANAGER_H
 #define QTUDPMANAGER_H
 

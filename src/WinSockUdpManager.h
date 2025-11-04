@@ -1,7 +1,6 @@
 #ifndef WINSOCKUDPMANAGER_H
 #define WINSOCKUDPMANAGER_H
 
-// ******** 关键修改 ********
 // 必须先包含一个Qt头文件，Q_OS_WIN 宏才会被定义。
 // IUdpManager.h 包含了 QObject，QObject 内部会包含 QtGlobal。
 #include "IUdpManager.h"

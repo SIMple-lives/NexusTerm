@@ -1,4 +1,3 @@
-// IUdpManager.h
 #ifndef IUDPMANAGER_H
 #define IUDPMANAGER_H
 

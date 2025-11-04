@@ -17,7 +17,6 @@
 #include <QDataStream>
 #include <QDebug>
 #include <memory>
-// ******** 新增：包含 QApplication 以便获取程序路径 ********
 #include <QApplication> 
 
 #include "QtUdpManager.h"
@@ -44,9 +43,9 @@ MainWindow::MainWindow(QWidget *parent)
     , m_videoStreamHeight(0)
     , m_framesToSkip(0)
     , m_processedFrameCount(0)
-    , m_lastFingerprintStatus(0xFFFFFFFF) // <-- 初始化：状态缓存
-    , m_fpsCounter(0)                 // <-- 初始化：FPS计数器
-    , m_currentFps(0)                 // <-- 初始化：当前FPS
+    , m_lastFingerprintStatus(0xFFFFFFFF)
+    , m_fpsCounter(0)                 
+    , m_currentFps(0)
 {
     ui->setupUi(this);
 
@@ -101,11 +100,9 @@ MainWindow::MainWindow(QWidget *parent)
     
     connect(ui->clientListWidget, &QListWidget::currentItemChanged, this, &MainWindow::updateControlsState);
 
-    // ******** START: 初始化和连接FPS定时器 ********
     m_fpsTimer = new QTimer(this);
     m_fpsTimer->setInterval(1000); // 1秒触发一次
     connect(m_fpsTimer, &QTimer::timeout, this, &MainWindow::updateFpsDisplay);
-    // ******** END: ********
 
     ui->displayStackedWidget->setCurrentIndex(0);
 }
@@ -154,7 +151,6 @@ void MainWindow::initUI() {
 
     connect(displayGroup, &QButtonGroup::buttonClicked, this, &MainWindow::updateLogDisplay);
     
-    // 初始化时清空分辨率标签
     ui->resolutionLabel->clear();
     ui->fingerprintStatusLabel->clear(); 
 
@@ -575,10 +571,8 @@ void MainWindow::on_clearDisplayButton_clicked()
     ui->fingerprintStatusLabel->clear(); 
     m_lastFingerprintStatus = 0xFFFFFFFF; // <-- 重置：状态缓存
     
-    // ******** START: 重置FPS计数器 ********
     m_fpsCounter = 0;
     m_currentFps = 0;
-    // ******** END: ********
 
     ui->displayStackedWidget->setCurrentIndex(0);
     if (m_tempMediaFile) {
@@ -597,11 +591,9 @@ void MainWindow::on_playPauseButton_clicked()
             m_isUdpStreaming = true;
             m_videoFrameBuffer.clear(); // 清空旧的缓冲
 
-            // ******** START: 启动FPS定时器和重置计数器 ********
             m_fpsCounter = 0;
             m_currentFps = 0;
             m_fpsTimer->start();
-            // ******** END: ********
 
             // 发送1字节的启动命令 0x01
             QByteArray startCommand;
@@ -616,9 +608,7 @@ void MainWindow::on_playPauseButton_clicked()
             
             m_videoHeaderReceived = false; 
 
-            // ******** START: 停止FPS定时器 ********
             m_fpsTimer->stop();
-            // ******** END: ********
             
             ui->playPauseButton->setText("播放");
             m_statusLabel->setText(QString("UDP已绑定本地端口: %1").arg(ui->udpBindPortSpinBox->value()));
@@ -873,8 +863,7 @@ void MainWindow::processVideoFrameBuffer() {
             QByteArray statusBytes = m_videoFrameBuffer.mid(9, 3);
             updateFingerprintStatus(statusBytes, image); // 传入当前帧
             
-            m_fpsCounter++; // 帧率计数器+1
-            // ******** END: 修改 ********
+            m_fpsCounter++; 
 
         } else {
             qDebug() << "[Video ERROR] QImage无法从数据加载。";
@@ -885,7 +874,6 @@ void MainWindow::processVideoFrameBuffer() {
     }
 }
 
-// ******** START: 新增：FPS显示函数 ********
 void MainWindow::updateFpsDisplay() {
     // 这个函数现在由定时器（每秒）和processVideoFrameBuffer（每帧）调用
     
@@ -905,7 +893,6 @@ void MainWindow::updateFpsDisplay() {
         ui->resolutionLabel->clear();
     }
 }
-// ******** END: 新增 ********
 
 void MainWindow::onUdpReassemblyTimeout() {
     if (m_udpBuffer.isEmpty()) return;
@@ -966,13 +953,11 @@ void MainWindow::updateFingerprintStatus(const QByteArray &statusBytes, const QI
     const uchar* data = reinterpret_cast<const uchar*>(statusBytes.constData());
     uint32_t statusCode = (data[0] << 16) | (data[1] << 8) | data[2];
 
-    // --- 核心优化 ---
     // 如果当前帧的状态和上一帧的状态相同，则什么也不做，直接返回。
     if (statusCode == m_lastFingerprintStatus) {
         return;
     }
 
-    // --- 状态已改变 ---
     // 只有在状态不同时，才执行 setText 和 setStyleSheet
     switch (statusCode) {
         case 0x010001: // 01 00 01
@@ -985,7 +970,6 @@ void MainWindow::updateFingerprintStatus(const QByteArray &statusBytes, const QI
             // 设置亮红色字体，背景透明
             ui->fingerprintStatusLabel->setStyleSheet("background-color: transparent; color: rgb(255, 0, 0); padding: 2px;");
             
-            // ******** 新增：保存错误帧 ********
             if (!currentFrame.isNull()) {
                 saveErrorFrame(currentFrame);
             }
@@ -1012,7 +996,6 @@ void MainWindow::updateFingerprintStatus(const QByteArray &statusBytes, const QI
     m_lastFingerprintStatus = statusCode;
 }
 
-// ******** START: 新增：保存错误帧函数 ********
 void MainWindow::saveErrorFrame(const QImage &image)
 {
     // 1. 定义文件夹路径 (位于程序可执行文件旁边)
@@ -1041,4 +1024,3 @@ void MainWindow::saveErrorFrame(const QImage &image)
         qWarning() << "Failed to save image to:" << filePath;
     }
 }
-// ******** END: 新增 ********
